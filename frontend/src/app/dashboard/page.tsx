@@ -24,7 +24,7 @@ export default function DashboardPage() {
     architectureScore: number | null;
     qualityScore: number | null;
     grade: string;
-    formulas: Record<string, str>;
+    formulas: Record<string, string>;
   }>({
     overallScore: null,
     securityScore: null,
