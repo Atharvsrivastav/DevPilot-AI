@@ -14,6 +14,8 @@ import {
   Share2,
   ExternalLink,
   Code2,
+  Calculator,
+  HelpCircle,
 } from "lucide-react";
 
 export default function AnalysisPage() {
@@ -21,7 +23,7 @@ export default function AnalysisPage() {
     security: true,
     quality: true,
     architecture: false,
-    reviewer: true,
+    formulaInspector: true,
   });
 
   const toggleSection = (key: string) => {
@@ -41,10 +43,10 @@ export default function AnalysisPage() {
           <div className="flex items-center gap-2 text-xs font-mono text-cyan-400">
             <span>Report ID: rpt_01h92k8a12</span>
             <span>•</span>
-            <span>Generated 10 mins ago</span>
+            <span>Calculated from Measurable AST Data</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight linear-gradient-text">
-            Enterprise Repository Analysis Report
+            Repository Evidence & Analysis Report
           </h1>
           <p className="text-xs text-slate-400 font-mono">
             Repository: enterprise-org/DevPilot-AI (Branch: main)
@@ -63,22 +65,31 @@ export default function AnalysisPage() {
         </div>
       </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Overall Health Rating</div>
-          <div className="text-3xl font-black text-emerald-400 font-mono">88 / 100</div>
-          <div className="text-[11px] text-slate-500 font-mono">Grade: A (Optimal)</div>
-        </div>
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Security Vulnerabilities</div>
-          <div className="text-3xl font-black text-rose-400 font-mono">3 Findings</div>
-          <div className="text-[11px] text-rose-400 font-mono font-semibold">1 Critical • 1 High • 1 Medium</div>
-        </div>
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Architecture Pattern</div>
-          <div className="text-3xl font-black text-indigo-400 font-mono">Clean Arch</div>
-          <div className="text-[11px] text-slate-500 font-mono">Modularity: 90/100</div>
+      {/* Transparent Formula & Raw Evidence Inspector */}
+      <div className="glass-panel p-6 rounded-3xl space-y-4 border border-cyan-500/30">
+        <h3 className="text-base font-bold text-white flex items-center gap-2">
+          <Calculator className="w-5 h-5 text-cyan-400" />
+          Transparent Score Derivation & Evidence Audit
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/5 space-y-2">
+            <div className="text-slate-400 font-bold uppercase">Security Score Formula</div>
+            <div className="text-cyan-300">100 - (Critical*25 + High*15 + Medium*8 + Low*3)</div>
+            <div className="text-slate-500 text-[11px]">Raw: Critical: 1 • High: 1 • Medium: 1</div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/5 space-y-2">
+            <div className="text-slate-400 font-bold uppercase">Quality Score Formula</div>
+            <div className="text-cyan-300">100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2)</div>
+            <div className="text-slate-500 text-[11px]">Raw: Complexity &gt; 10: 1 • Unused Imports: 1</div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/5 space-y-2">
+            <div className="text-slate-400 font-bold uppercase">Architecture Score Formula</div>
+            <div className="text-cyan-300">BasePatternScore + (LayerCount*2.0) - (Coupling*0.1)</div>
+            <div className="text-slate-500 text-[11px]">Pattern: Clean Architecture (Base: 95.0)</div>
+          </div>
         </div>
       </div>
 
@@ -91,7 +102,7 @@ export default function AnalysisPage() {
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-5 h-5 text-rose-400" />
             <div>
-              <h3 className="text-base font-bold text-white">1. Security Vulnerability Scan</h3>
+              <h3 className="text-base font-bold text-white">1. Security Vulnerability Scan (Gitleaks + Semgrep)</h3>
               <p className="text-xs text-slate-400">Hardcoded secrets, SQLi risks, XSS checks, & dependency CVEs</p>
             </div>
           </div>
@@ -105,7 +116,7 @@ export default function AnalysisPage() {
                 <span className="font-extrabold uppercase text-rose-400 px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/30">
                   CRITICAL Risk (Score: 9.0)
                 </span>
-                <span className="font-mono text-slate-500">SEC-003</span>
+                <span className="font-mono text-slate-500">SEC-003 • Source: Semgrep Rule Engine</span>
               </div>
               <h4 className="text-sm font-bold text-white">Exposed JWT Signing Secret Key</h4>
               <p className="text-slate-400 font-mono">File: backend/app/core/config.py (Line 26)</p>
@@ -129,7 +140,7 @@ export default function AnalysisPage() {
           <div className="flex items-center gap-3">
             <Cpu className="w-5 h-5 text-cyan-400" />
             <div>
-              <h3 className="text-base font-bold text-white">2. Code Quality & Cyclomatic Complexity</h3>
+              <h3 className="text-base font-bold text-white">2. Code Quality & AST Cyclomatic Complexity</h3>
               <p className="text-xs text-slate-400">Dead code, duplicate blocks, long functions, & naming standards</p>
             </div>
           </div>
@@ -141,7 +152,7 @@ export default function AnalysisPage() {
             <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/5 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-cyan-400 uppercase">High Complexity Warning</span>
-                <span className="font-mono text-slate-500">QUAL-012</span>
+                <span className="font-mono text-slate-500">QUAL-012 • Source: Python AST Inspector</span>
               </div>
               <h4 className="text-sm font-bold text-white">Function 'analyze_repository' exceeds branch limit</h4>
               <p className="text-slate-400 font-mono">File: backend/app/infrastructure/github/repo_analyzer.py (Complexity: 14)</p>

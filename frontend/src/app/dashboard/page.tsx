@@ -17,6 +17,23 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeRepoName, setActiveRepoName] = useState("DevPilot-AI");
 
+  // State initialized to null ("Not Analyzed") until scanner outputs exist
+  const [healthReport, setHealthReport] = useState<{
+    overallScore: number | null;
+    securityScore: number | null;
+    architectureScore: number | null;
+    qualityScore: number | null;
+    grade: string;
+    formulas: Record<string, str>;
+  }>({
+    overallScore: null,
+    securityScore: null,
+    architectureScore: null,
+    qualityScore: null,
+    grade: "Not Analyzed",
+    formulas: {},
+  });
+
   const handleRefresh = () => {
     setRefreshing(true);
     setTimeout(() => {
@@ -75,12 +92,12 @@ export default function DashboardPage() {
         isPrivate={true}
       />
 
-      {/* Top Scores Grid (4 Pillar Score Widgets) */}
+      {/* Top Scores Grid (Real Scores or Not Analyzed) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <ScoreWidget title="Health Score" score={88} grade="A" icon="health" />
-        <ScoreWidget title="Security Compliance" score={92} grade="A+" icon="security" />
-        <ScoreWidget title="Architecture Rating" score={88} grade="A" icon="health" />
-        <ScoreWidget title="Code Quality Index" score={85} grade="B+" icon="health" />
+        <ScoreWidget title="Overall Health Score" score={healthReport.overallScore} grade={healthReport.grade} icon="health" formula={healthReport.formulas.overall} />
+        <ScoreWidget title="Security Compliance" score={healthReport.securityScore} grade={healthReport.securityScore !== null ? "Calculated" : "Not Analyzed"} icon="security" formula="100 - (Critical*25 + High*15 + Medium*8 + Low*3)" />
+        <ScoreWidget title="Architecture Rating" score={healthReport.architectureScore} grade={healthReport.architectureScore !== null ? "Calculated" : "Not Analyzed"} icon="health" formula="BaseScore + (LayerCount*2) - (Coupling*0.1)" />
+        <ScoreWidget title="Code Quality Index" score={healthReport.qualityScore} grade={healthReport.qualityScore !== null ? "Calculated" : "Not Analyzed"} icon="health" formula="100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2)" />
       </div>
 
       {/* Analytics & History Grid */}

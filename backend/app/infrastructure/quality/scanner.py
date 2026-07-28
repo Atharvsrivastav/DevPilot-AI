@@ -1,8 +1,10 @@
-"""Code Quality Scanner engine analyzing code quality, cyclomatic complexity, dead code, & code smells."""
+"""Code Quality Scanner engine analyzing code quality, cyclomatic complexity, dead code, & code smells strictly from AST and file metrics."""
 
 import ast
 import re
 import uuid
+from typing import Any
+
 from app.domain.models.quality_scanner import (
     QualityFinding,
     QualityIssueType,
@@ -20,6 +22,24 @@ class CodeQualityScannerService:
         """Analyze files for dead code, duplicates, unused imports/vars, complexity, and naming issues."""
         findings: list[QualityFinding] = []
         seen_lines_hash: dict[str, str] = {}
+
+        if not files_map:
+            return QualityScanResult(
+                repository_url=repo_url,
+                quality_score=None,
+                formula_used="Not Analyzed (No source files scanned)",
+                raw_metrics={"scanned_files": 0},
+                total_issues=0,
+                dead_code_count=0,
+                duplicate_code_count=0,
+                unused_imports_count=0,
+                unused_variables_count=0,
+                large_files_count=0,
+                long_functions_count=0,
+                high_complexity_count=0,
+                naming_issues_count=0,
+                findings=[],
+            )
 
         for file_path, content in files_map.items():
             lines = content.splitlines()
@@ -66,22 +86,52 @@ class CodeQualityScannerService:
             elif file_path.endswith((".js", ".jsx", ".ts", ".tsx")):
                 cls._analyze_js_ts_heuristics(file_path, lines, content, findings)
 
-        # 5. Calculate Score (0 to 100)
-        total_issues = len(findings)
-        quality_score = max(0.0, round(100.0 - (total_issues * 3.5), 1))
+        # 5. Extract Raw Counts
+        dead_code_count = sum(1 for f in findings if f.issue_type == QualityIssueType.DEAD_CODE)
+        duplicate_code_count = sum(1 for f in findings if f.issue_type == QualityIssueType.DUPLICATE_CODE)
+        unused_imports_count = sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_IMPORT)
+        unused_variables_count = sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_VARIABLE)
+        large_files_count = sum(1 for f in findings if f.issue_type == QualityIssueType.LARGE_FILE)
+        long_functions_count = sum(1 for f in findings if f.issue_type == QualityIssueType.LONG_FUNCTION)
+        high_complexity_count = sum(1 for f in findings if f.issue_type == QualityIssueType.HIGH_CYCLOMATIC_COMPLEXITY)
+        naming_issues_count = sum(1 for f in findings if f.issue_type == QualityIssueType.NAMING_ISSUE)
+
+        # Deterministic Score Formula: 100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2 + LargeFiles*3 + DuplicateBlocks*4)
+        deduction = (
+            (high_complexity_count * 5.0)
+            + (dead_code_count * 4.0)
+            + (unused_imports_count * 2.0)
+            + (large_files_count * 3.0)
+            + (duplicate_code_count * 4.0)
+        )
+        quality_score = max(0.0, round(100.0 - deduction, 1))
+
+        raw_metrics = {
+            "scanned_files": len(files_map),
+            "total_issues": len(findings),
+            "high_complexity_count": high_complexity_count,
+            "dead_code_count": dead_code_count,
+            "unused_imports_count": unused_imports_count,
+            "large_files_count": large_files_count,
+            "duplicate_code_count": duplicate_code_count,
+        }
+
+        formula_used = "100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2 + LargeFiles*3 + DuplicateBlocks*4)"
 
         return QualityScanResult(
             repository_url=repo_url,
             quality_score=quality_score,
-            total_issues=total_issues,
-            dead_code_count=sum(1 for f in findings if f.issue_type == QualityIssueType.DEAD_CODE),
-            duplicate_code_count=sum(1 for f in findings if f.issue_type == QualityIssueType.DUPLICATE_CODE),
-            unused_imports_count=sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_IMPORT),
-            unused_variables_count=sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_VARIABLE),
-            large_files_count=sum(1 for f in findings if f.issue_type == QualityIssueType.LARGE_FILE),
-            long_functions_count=sum(1 for f in findings if f.issue_type == QualityIssueType.LONG_FUNCTION),
-            high_complexity_count=sum(1 for f in findings if f.issue_type == QualityIssueType.HIGH_CYCLOMATIC_COMPLEXITY),
-            naming_issues_count=sum(1 for f in findings if f.issue_type == QualityIssueType.NAMING_ISSUE),
+            formula_used=formula_used,
+            raw_metrics=raw_metrics,
+            total_issues=len(findings),
+            dead_code_count=dead_code_count,
+            duplicate_code_count=duplicate_code_count,
+            unused_imports_count=unused_imports_count,
+            unused_variables_count=unused_variables_count,
+            large_files_count=large_files_count,
+            long_functions_count=long_functions_count,
+            high_complexity_count=high_complexity_count,
+            naming_issues_count=naming_issues_count,
             findings=findings,
         )
 

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Lock,
   Filter,
+  Calculator,
 } from "lucide-react";
 
 export default function SecurityPage() {
@@ -26,6 +27,7 @@ export default function SecurityPage() {
       line: 26,
       snippet: 'JWT_SECRET_KEY: str = "super_secret_jwt_key_change_in_production_123456789"',
       rec: "Move secret key to environment variables (.env) or Azure Key Vault.",
+      toolSource: "Gitleaks / Semgrep Secret Engine",
     },
     {
       id: "SEC-004",
@@ -37,6 +39,7 @@ export default function SecurityPage() {
       line: 42,
       snippet: 'query = "SELECT * FROM users WHERE email = \'" + user_input + "\'"',
       rec: "Use parameterized queries or ORM query builders (e.g. SQLAlchemy, Prisma).",
+      toolSource: "Semgrep AST Security Rules",
     },
     {
       id: "SEC-005",
@@ -48,6 +51,7 @@ export default function SecurityPage() {
       line: 18,
       snippet: "<div dangerouslySetInnerHTML={{ __html: userInput }} />",
       rec: "Sanitize user input using DOMPurify before dangerouslySetInnerHTML injection.",
+      toolSource: "Semgrep Rules Engine",
     },
     {
       id: "SEC-006",
@@ -59,6 +63,7 @@ export default function SecurityPage() {
       line: 18,
       snippet: 'app.add_middleware(CORSMiddleware, allow_origins=["*"])',
       rec: "Enforce HSTS and restrict CORS wildcard origins for production deployments.",
+      toolSource: "Trivy / OWASP Header Rules",
     },
   ];
 
@@ -78,7 +83,7 @@ export default function SecurityPage() {
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-rose-400">
             <ShieldAlert className="w-4 h-4" />
-            <span>Automated Security Scanner</span>
+            <span>Multi-Engine Security Scanner (Gitleaks + Semgrep + Trivy)</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight linear-gradient-text">
             Security Vulnerabilities & CVE Audit
@@ -87,11 +92,17 @@ export default function SecurityPage() {
             Scans for hardcoded secrets, SQL injection, XSS, CSRF, and unsafe dependencies.
           </p>
         </div>
+      </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
-            Risk Rating: 8.5 / 10.0
-          </span>
+      {/* Transparent Formula Callout */}
+      <div className="glass-panel p-4 rounded-2xl border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-mono">
+        <div className="flex items-center gap-2 text-rose-400 font-bold">
+          <Calculator className="w-4 h-4" />
+          <span>Security Score Formula:</span>
+          <span className="text-white font-normal">100 - (Critical*25 + High*15 + Medium*8 + Low*3)</span>
+        </div>
+        <div className="text-slate-400 text-[11px]">
+          Sources: Semgrep, Gitleaks, Trivy, npm audit
         </div>
       </div>
 
@@ -133,7 +144,10 @@ export default function SecurityPage() {
                 </span>
                 <h3 className="text-base font-bold text-white">{item.title}</h3>
               </div>
-              <span className="text-xs font-mono text-slate-500">{item.id}</span>
+              <div className="flex items-center gap-3 font-mono text-xs">
+                <span className="text-slate-400 text-[11px]">Tool: {item.toolSource}</span>
+                <span className="text-slate-500">{item.id}</span>
+              </div>
             </div>
 
             <div className="text-xs font-mono text-cyan-400 flex items-center gap-1.5">

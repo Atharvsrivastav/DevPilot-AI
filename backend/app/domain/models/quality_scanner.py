@@ -1,6 +1,7 @@
 """Pydantic model schema for Code Quality Scanner output."""
 
 from enum import Enum
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
@@ -21,14 +22,16 @@ class QualityFinding(BaseModel):
     title: str
     description: str
     file_path: str
-    line_number: int | None = None
-    snippet: str | None = None
+    line_number: Optional[int] = None
+    snippet: Optional[str] = None
     recommendation: str
 
 
 class QualityScanResult(BaseModel):
     repository_url: str
-    quality_score: float = Field(..., description="Overall calculated code quality score (0.0 to 100.0)")
+    quality_score: Optional[float] = Field(None, description="Overall calculated code quality score (0.0 to 100.0 or None if Not Analyzed)")
+    formula_used: str = Field(default="100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2 + LargeFiles*3 + DuplicateBlocks*4)", description="Transparent formula")
+    raw_metrics: dict[str, Any] = Field(default_factory=dict, description="Raw counts evidence")
     total_issues: int
     dead_code_count: int
     duplicate_code_count: int
