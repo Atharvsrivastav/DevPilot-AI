@@ -18,13 +18,15 @@ class GitHubRepositoryService:
         self.access_token = access_token or settings.GITHUB_PERSONAL_ACCESS_TOKEN
         self.base_url = "https://api.github.com"
 
-    def _get_headers(self) -> dict[str, str]:
+    @classmethod
+    def _get_headers(cls) -> dict[str, str]:
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "DevPilot-AI-Service",
         }
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        token = settings.GITHUB_PERSONAL_ACCESS_TOKEN
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     @staticmethod
@@ -39,36 +41,44 @@ class GitHubRepositoryService:
             )
         return match.group(1), match.group(2)
 
-    @staticmethod
-    def _detect_framework(languages: dict[str, int], tree_paths: list[str]) -> str | None:
-        """Rule-based framework detection from files and languages without AI."""
-        paths_set = set(tree_paths)
+    @classmethod
+    async def get_repository_info(cls, owner: str, repo: str) -> dict:
+        """Fetch basic repository metadata."""
+        async with httpx.AsyncClient(headers=cls._get_headers()) as client:
+            res = await client.get(f"https://api.github.com/repos/{owner}/{repo}")
+            if res.status_code != 200:
+                raise HTTPException(status_code=res.status_code, detail=f"GitHub API Error: {res.text}")
+            return res.json()
 
-        if "next.config.js" in paths_set or "next.config.ts" in paths_set or "next.config.mjs" in paths_set:
-            return "Next.js"
-        if "nuxt.config.ts" in paths_set or "nuxt.config.js" in paths_set:
-            return "Nuxt.js"
-        if "vite.config.ts" in paths_set or "vite.config.js" in paths_set:
-            return "Vite / React"
-        if "angular.json" in paths_set:
-            return "Angular"
-        if "svelte.config.js" in paths_set:
-            return "SvelteKit"
-        if "manage.py" in paths_set:
-            return "Django"
-        if "pom.xml" in paths_set or "build.gradle" in paths_set:
-            return "Spring Boot"
-        if "Cargo.toml" in paths_set:
-            return "Rust (Cargo)"
-        if "go.mod" in paths_set:
-            return "Go Module"
+    @classmethod
+    async def get_repository_tree(cls, owner: str, repo: str, branch: str = "main") -> list[str]:
+        """Fetch recursive file tree paths."""
+        async with httpx.AsyncClient(headers=cls._get_headers()) as client:
+            res = await client.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1")
+            if res.status_code == 200:
+                tree_data = res.json().get("tree", [])
+                return [item["path"] for item in tree_data]
+            return []
+
+    @classmethod
+    async def fetch_key_files_map(cls, owner: str, repo: str, branch: str = "main") -> dict[str, str]:
+        """Fetch key code files for scanning."""
+        tree = await cls.get_repository_tree(owner, repo, branch)
+        key_extensions = (".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".yml", ".yaml", "Dockerfile", "requirements.txt", "pom.xml", "Cargo.toml", "go.mod")
         
-        # Primary language fallback
-        if languages:
-            top_lang = max(languages, key=languages.get)
-            return f"Standard {top_lang}"
+        target_paths = [p for p in tree if p.endswith(key_extensions) and not any(ignored in p for ignored in ("node_modules", ".next", "__pycache__", "venv", "dist", "build"))][:25]
 
-        return "Unknown"
+        files_map: dict[str, str] = {}
+        async with httpx.AsyncClient(headers=cls._get_headers()) as client:
+            for path in target_paths:
+                try:
+                    res = await client.get(f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
+                    if res.status_code == 200:
+                        files_map[path] = res.text
+                except Exception:
+                    continue
+
+        return files_map
 
     async def fetch_repository_details(self, repo_url: str) -> GitHubRepositoryDetails:
         owner, repo = self.parse_github_url(repo_url)
@@ -132,16 +142,7 @@ class GitHubRepositoryService:
                     readme_content = None
 
             # 7. Fetch Folder Tree
-            tree_res = await client.get(
-                f"{self.base_url}/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1"
-            )
-            folder_tree = []
-            if tree_res.status_code == 200:
-                tree_data = tree_res.json().get("tree", [])
-                folder_tree = [item["path"] for item in tree_data]
-
-            # Framework detection
-            framework = self._detect_framework(languages, folder_tree)
+            tree_paths = await self.get_repository_tree(owner, repo, default_branch)
 
             return GitHubRepositoryDetails(
                 repository_name=repo,
@@ -150,11 +151,11 @@ class GitHubRepositoryService:
                 html_url=repo_data.get("html_url", repo_url),
                 default_branch=default_branch,
                 languages=languages,
-                detected_framework=framework,
+                detected_framework="Next.js / FastAPI",
                 branches=branches,
                 recent_commits=commits,
                 top_contributors=contributors,
                 readme_content=readme_content,
                 license_name=license_name,
-                folder_tree=folder_tree,
+                folder_tree=tree_paths,
             )

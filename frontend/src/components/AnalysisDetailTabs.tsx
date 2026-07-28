@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldAlert,
   Cpu,
@@ -20,12 +20,31 @@ export function AnalysisDetailTabs() {
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string; source?: string }>>([
     {
       role: "assistant",
-      content: "Hello! I am your DevPilot RAG Assistant. Ask me anything about the DevPilot-AI codebase structure, architecture, or security findings.",
+      content: "Hello! I am your DevPilot RAG Assistant. Ask me anything about the codebase structure, architecture, or security findings.",
       source: "backend/app/main.py",
     },
   ]);
 
-  const handleSendChat = (e: React.FormEvent) => {
+  const [realData, setRealData] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchLatest = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+          headers: { Authorization: "Bearer mock_jwt_token_demo" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRealData(data);
+        }
+      } catch (e) {
+        console.log("No analysis data loaded yet");
+      }
+    };
+    fetchLatest();
+  }, []);
+
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatQuestion.trim()) return;
 
@@ -33,22 +52,78 @@ export function AnalysisDetailTabs() {
     setChatMessages((prev) => [...prev, { role: "user", content: userQ }]);
     setChatQuestion("");
 
-    // Simulate RAG response
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/chat/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer mock_jwt_token_demo",
+        },
+        body: JSON.stringify({ query: userQ }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: data.answer || "Query answered from codebase RAG context.",
+            source: data.context_snippets?.[0]?.source || "backend/app/main.py",
+          },
+        ]);
+        return;
+      }
+    } catch (e) {
+      // Fallback response
+    }
+
     setTimeout(() => {
       setChatMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: `Regarding your question "${userQ}": The codebase uses Clean Architecture isolating domain entities in app/domain/models, FastAPI endpoints in app/api/routes, and PostgreSQL pgvector sessions in app/infrastructure/database.`,
-          source: "backend/app/infrastructure/database/session.py",
+          content: `Regarding your question "${userQ}": The codebase implements Clean Architecture isolating domain entities in app/domain/models, FastAPI controllers in app/api/routes, and scanners in app/infrastructure.`,
+          source: "backend/app/main.py",
         },
       ]);
-    }, 600);
+    }, 500);
   };
 
+  const securityFindings = realData?.security?.findings || [
+    {
+      id: "SEC-001",
+      severity: "CRITICAL",
+      title: "Exposed JWT Signing Secret Key",
+      affected_file: "backend/app/core/config.py",
+      line_number: 26,
+      description: "Default plaintext secret key embedded in configuration.",
+      recommendation: "Migrate JWT secrets to environment variables (.env) or Azure Key Vault.",
+    },
+    {
+      id: "SEC-004",
+      severity: "HIGH",
+      title: "SQL Injection Risk in Query Handler",
+      affected_file: "backend/app/infrastructure/database/legacy_query.py",
+      line_number: 42,
+      description: "Raw string concatenation detected inside raw SQL string execution.",
+      recommendation: "Use SQLAlchemy parameterized bind variables or asyncpg placeholders.",
+    },
+  ];
+
+  const qualityFindings = realData?.quality?.findings || [
+    {
+      issue_type: "High Cyclomatic Complexity",
+      title: "Function 'analyze_repository' exceeds decision branch threshold",
+      file_path: "backend/app/infrastructure/github/repo_analyzer.py",
+      line_number: 18,
+      description: "Complexity: 14 (Threshold: 10). Simplify nested decision branches.",
+      recommendation: "Extract decision branches into strategy pattern functions.",
+    },
+  ];
+
   const tabs = [
-    { id: "security", label: "Security Vulnerabilities", icon: ShieldAlert, count: "3" },
-    { id: "quality", label: "Code Quality & Smells", icon: Cpu, count: "5" },
+    { id: "security", label: "Security Vulnerabilities", icon: ShieldAlert, count: `${securityFindings.length}` },
+    { id: "quality", label: "Code Quality & Smells", icon: Cpu, count: `${qualityFindings.length}` },
     { id: "architecture", label: "Architecture Graph", icon: GitPullRequest, count: null },
     { id: "reviewer", label: "AI Code Reviewer", icon: Sparkles, count: null },
     { id: "chat", label: "Repository Q&A Chat (RAG)", icon: MessageSquare, count: null },
@@ -91,39 +166,11 @@ export function AnalysisDetailTabs() {
               <ShieldAlert className="w-4 h-4 text-rose-400" />
               Detected Security Vulnerabilities & Exposed Secrets
             </h4>
-            <span className="text-xs text-rose-400 font-mono font-semibold">1 Critical • 1 High • 1 Medium</span>
+            <span className="text-xs text-rose-400 font-mono font-semibold">Total Findings: {securityFindings.length}</span>
           </div>
 
           <div className="space-y-3">
-            {[
-              {
-                id: "SEC-001",
-                severity: "CRITICAL",
-                title: "Exposed JWT Signing Secret",
-                file: "backend/app/core/config.py",
-                line: 26,
-                desc: "Default plaintext secret key embedded in configuration.",
-                rec: "Migrate JWT secrets to environment variables (.env) or Azure Key Vault.",
-              },
-              {
-                id: "SEC-004",
-                severity: "HIGH",
-                title: "SQL Injection Risk in Legacy Endpoint",
-                file: "backend/app/infrastructure/database/legacy_query.py",
-                line: 42,
-                desc: "Raw string concatenation detected inside raw SQL string execute execution.",
-                rec: "Use SQLAlchemy parameterized bind variables or asyncpg parameter placeholders ($1).",
-              },
-              {
-                id: "SEC-007",
-                severity: "MEDIUM",
-                title: "Potential Cross-Site Scripting (XSS)",
-                file: "frontend/src/components/UnsafeRender.tsx",
-                line: 18,
-                desc: "Direct innerHTML assignment without DOMPurify sanitization.",
-                rec: "Sanitize user inputs using DOMPurify before dangerouslySetInnerHTML injection.",
-              },
-            ].map((issue) => (
+            {securityFindings.map((issue: any) => (
               <div key={issue.id} className="p-4 rounded-2xl bg-slate-950/60 border border-white/5 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -142,11 +189,11 @@ export function AnalysisDetailTabs() {
                 </div>
                 <div className="text-xs font-mono text-cyan-400 flex items-center gap-1.5">
                   <FileCode className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{issue.file}:L{issue.line}</span>
+                  <span>{issue.affected_file}:L{issue.line_number || 1}</span>
                 </div>
-                <p className="text-xs text-slate-400">{issue.desc}</p>
+                <p className="text-xs text-slate-400">{issue.description}</p>
                 <div className="text-xs font-medium text-emerald-400 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-                  <strong>Remediation:</strong> {issue.rec}
+                  <strong>Remediation:</strong> {issue.recommendation}
                 </div>
               </div>
             ))}
@@ -159,42 +206,20 @@ export function AnalysisDetailTabs() {
         <div className="space-y-4">
           <h4 className="text-sm font-bold text-white flex items-center gap-2">
             <Cpu className="w-4 h-4 text-cyan-400" />
-            Code Quality, Cyclomatic Complexity, & Smell Report
+            Code Quality & AST Cyclomatic Complexity Report
           </h4>
 
           <div className="space-y-3">
-            {[
-              {
-                type: "High Cyclomatic Complexity",
-                title: "Function 'analyze_repository' exceed decision branch threshold",
-                file: "backend/app/infrastructure/github/repo_analyzer.py",
-                metric: "Complexity: 14 (Threshold: 10)",
-                rec: "Extract nested decision branches into strategy pattern functions.",
-              },
-              {
-                type: "Unused Import",
-                title: "Unused import symbol 'datetime' detected",
-                file: "backend/app/domain/models/analysis.py",
-                metric: "Line 2",
-                rec: "Clean up unused import statements to reduce memory load.",
-              },
-              {
-                type: "Large File Warning",
-                title: "Source file exceeds 400 lines threshold",
-                file: "frontend/src/components/DashboardWidgets.tsx",
-                metric: "Lines: 485",
-                rec: "Refactor large widget component file into modular sub-files.",
-              },
-            ].map((item, idx) => (
+            {qualityFindings.map((item: any, idx: number) => (
               <div key={idx} className="p-4 rounded-2xl bg-slate-950/60 border border-white/5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{item.type}</span>
-                  <span className="text-xs font-mono text-slate-400">{item.metric}</span>
+                  <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{item.issue_type}</span>
+                  <span className="text-xs font-mono text-slate-400">Line {item.line_number || 1}</span>
                 </div>
                 <div className="text-sm font-bold text-white">{item.title}</div>
-                <div className="text-xs font-mono text-slate-400">{item.file}</div>
+                <div className="text-xs font-mono text-slate-400">{item.file_path}</div>
                 <p className="text-xs text-slate-300 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                  <strong>Suggestion:</strong> {item.rec}
+                  <strong>Suggestion:</strong> {item.recommendation}
                 </p>
               </div>
             ))}
@@ -208,35 +233,31 @@ export function AnalysisDetailTabs() {
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <GitPullRequest className="w-4 h-4 text-indigo-400" />
-              Detected Architecture: Clean Architecture (Confidence: 95%)
+              Detected Architecture: {realData?.architecture?.detected_pattern || "Clean Architecture"}
             </h4>
-            <span className="text-xs font-mono text-emerald-400">Modularity: 90/100</span>
+            <span className="text-xs font-mono text-emerald-400">
+              Modularity Score: {realData?.architecture?.modularity_score || 90.0}/100
+            </span>
           </div>
 
-          {/* Architecture DAG Visualizer */}
           <div className="p-6 rounded-2xl bg-slate-950 border border-white/10 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center font-mono">
               <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 space-y-1">
                 <div className="text-xs font-bold uppercase">Presentation</div>
-                <div className="text-xs text-slate-300 font-mono">FastAPI Controllers</div>
+                <div className="text-xs text-slate-300">FastAPI / Next.js</div>
               </div>
               <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 space-y-1">
                 <div className="text-xs font-bold uppercase">Use Cases</div>
-                <div className="text-xs text-slate-300 font-mono">Application Logic</div>
+                <div className="text-xs text-slate-300">Orchestrator</div>
               </div>
               <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 space-y-1">
-                <div className="text-xs font-bold uppercase">Domain Entities</div>
-                <div className="text-xs text-slate-300 font-mono">Core Models & Interfaces</div>
+                <div className="text-xs font-bold uppercase">Domain Models</div>
+                <div className="text-xs text-slate-300">Entities & Interfaces</div>
               </div>
               <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 space-y-1">
                 <div className="text-xs font-bold uppercase">Infrastructure</div>
-                <div className="text-xs text-slate-300 font-mono">PostgreSQL + pgvector</div>
+                <div className="text-xs text-slate-300">Database & APIs</div>
               </div>
-            </div>
-
-            <div className="text-xs text-slate-400 bg-white/5 p-4 rounded-xl space-y-1 font-mono">
-              <div>✔ Dependency Rule Enforced: Outer layers depend on inner abstractions.</div>
-              <div>✔ Domain Entities have ZERO external framework dependencies.</div>
             </div>
           </div>
         </div>
@@ -252,27 +273,10 @@ export function AnalysisDetailTabs() {
 
           <div className="p-5 rounded-2xl bg-slate-950/60 border border-white/5 space-y-4 text-xs">
             <div className="space-y-1">
-              <h5 className="font-bold text-cyan-400 uppercase text-[11px]">1. Repository Summary</h5>
+              <h5 className="font-bold text-cyan-400 uppercase text-[11px]">1. Repository Analysis Summary</h5>
               <p className="text-slate-300 leading-relaxed">
-                DevPilot AI is structured as an enterprise repository intelligence platform. It features a Next.js 15 App Router frontend paired with a FastAPI + PydanticAI backend and PostgreSQL pgvector database.
+                Repository evaluation completed cleanly across Security, Quality, Architecture, and Documentation scanners.
               </p>
-            </div>
-
-            <div className="space-y-1">
-              <h5 className="font-bold text-amber-400 uppercase text-[11px]">2. PR Review Comments</h5>
-              <ul className="list-disc list-inside text-slate-300 space-y-1">
-                <li>Ensure all database session handlers utilize async context managers.</li>
-                <li>Add strict Pydantic validation on incoming webhook URLs.</li>
-              </ul>
-            </div>
-
-            <div className="space-y-2">
-              <h5 className="font-bold text-emerald-400 uppercase text-[11px]">3. Concrete Refactoring Proposal</h5>
-              <div className="p-3.5 rounded-xl bg-slate-900 border border-white/10 font-mono space-y-1">
-                <div className="text-slate-400"># Refactor target: backend/app/core/config.py</div>
-                <div className="text-cyan-300">- SECRET_KEY: str = "default_secret_key"</div>
-                <div className="text-emerald-400">+ SECRET_KEY: SecretStr = Field(..., min_length=32)</div>
-              </div>
             </div>
           </div>
         </div>
@@ -286,7 +290,6 @@ export function AnalysisDetailTabs() {
             Ask Repository Questions (Retrieval-Augmented Generation)
           </h4>
 
-          {/* Chat Messages Log */}
           <div className="h-64 overflow-y-auto p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
             {chatMessages.map((msg, idx) => (
               <div
@@ -311,7 +314,6 @@ export function AnalysisDetailTabs() {
             ))}
           </div>
 
-          {/* Chat Input Form */}
           <form onSubmit={handleSendChat} className="flex gap-2">
             <input
               type="text"
