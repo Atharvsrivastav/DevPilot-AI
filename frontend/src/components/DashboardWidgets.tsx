@@ -201,12 +201,12 @@ export function RecentAnalysisWidget() {
         </h3>
       </div>
       <div className="space-y-3">
-        {analyses.length === 0 ? (
+        {historyList.length === 0 ? (
           <div className="p-4 text-xs font-mono text-slate-500 text-center rounded-xl bg-white/[0.02]">
             No repository analysis runs recorded yet. Click "Analyze Repo" to start scanning.
           </div>
         ) : (
-          analyses.map((item) => (
+          historyList.map((item) => (
             <div
               key={item.analysis_id || item.id}
               className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all flex items-center justify-between group"
