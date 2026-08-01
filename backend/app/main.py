@@ -47,11 +47,13 @@ app.include_router(health_score.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 
 
+@app.get("/", tags=["Health Check"])
 @app.get("/health", tags=["Health Check"])
 async def health_check():
-    """Health check endpoint for Docker & Kubernetes liveness probes."""
+    """Health check endpoint for Docker, Render, & Kubernetes liveness probes."""
     return {
         "status": "healthy",
+        "message": "DevPilot AI Backend API is Live",
         "environment": settings.ENVIRONMENT,
         "version": "0.1.0"
     }
