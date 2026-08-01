@@ -263,7 +263,34 @@ class AnalysisPipelineOrchestrator:
             }
 
             # -------------------------------------------------------------
-            # STEP 4: COMPLETED & STORE RESULTS
+            # STEP 4: AI SUMMARIZING VIA NVIDIA LLM API
+            # -------------------------------------------------------------
+            record["status"] = "AI_SUMMARIZING"
+            record["progress"] = 90
+            record["current_step"] = "Generating AI Summary via NVIDIA free LLM models..."
+            logger.info(f"[{analysis_id}] Step 4: Generating AI summary via NVIDIA LLM")
+            await asyncio.sleep(0.3)
+
+            ai_review = None
+            try:
+                from app.infrastructure.ai.reviewer import AICodeReviewerService
+                readme_text = files_map.get("README.md")
+                ai_review_report = await AICodeReviewerService.review_repository(
+                    repo_url=repo_url,
+                    repo_summary=f"Analysis run {analysis_id}",
+                    file_tree=tree_paths,
+                    readme_content=readme_text,
+                    static_analysis_json=record,
+                )
+                ai_review = ai_review_report.model_dump()
+            except Exception as e:
+                logger.error(f"[{analysis_id}] AI summary generation failed: {e}")
+                ai_review = {"status": "failed", "error": str(e)}
+
+            record["ai_reviewer"] = ai_review
+
+            # -------------------------------------------------------------
+            # STEP 5: COMPLETED & STORE RESULTS
             # -------------------------------------------------------------
             duration = round(time.time() - start_time, 2)
             end_time_str = datetime.now(timezone.utc).isoformat()
@@ -287,14 +314,37 @@ class AnalysisPipelineOrchestrator:
 
     @classmethod
     def _load_local_workspace_files(cls) -> tuple[dict[str, str], list[str]]:
-        """Fallback helper scanning local project repository files for live pipeline execution."""
-        files_map = {
-            "backend/app/main.py": """from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef root(): return {'status': 'ok'}""",
-            "backend/app/core/config.py": """import os\nJWT_SECRET_KEY: str = 'super_secret_jwt_key_change_in_production_123456789'""",
-            "backend/app/infrastructure/security/scanner.py": """def scan(): eval('1+1')""",
-            "frontend/src/app/page.tsx": """export default function Page() { return <div>Home</div> }""",
-            "README.md": "# DevPilot AI Repository\nAutomated repository intelligence platform.",
-            "package.json": '{"name": "devpilot-ai", "dependencies": {"express": "4.16.0"}}',
-        }
-        tree_paths = list(files_map.keys())
+        """Walks and reads actual repository workspace files from local disk for live pipeline analysis."""
+        import os
+        from pathlib import Path
+
+        files_map: dict[str, str] = {}
+        tree_paths: list[str] = []
+
+        # Find project root directory
+        curr_dir = Path.cwd()
+        if (curr_dir / "backend").exists():
+            root_dir = curr_dir
+        elif curr_dir.name == "backend":
+            root_dir = curr_dir.parent
+        else:
+            root_dir = curr_dir
+
+        key_extensions = (".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".yml", ".yaml", "Dockerfile", "requirements.txt", "pom.xml", "Cargo.toml", "go.mod")
+        ignore_dirs = {".git", "node_modules", ".next", "__pycache__", "venv", ".venv", "dist", "build", ".agents"}
+
+        for root, dirs, files in os.walk(root_dir):
+            dirs[:] = [d for d in dirs if d not in ignore_dirs]
+            for file in files:
+                rel_path = os.path.relpath(os.path.join(root, file), root_dir).replace("\\", "/")
+                tree_paths.append(rel_path)
+                if file.endswith(key_extensions) or file in ("Dockerfile", "README.md"):
+                    if len(files_map) < 100:
+                        try:
+                            abs_file_path = os.path.join(root, file)
+                            with open(abs_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                                files_map[rel_path] = f.read()
+                        except Exception:
+                            continue
+
         return files_map, tree_paths

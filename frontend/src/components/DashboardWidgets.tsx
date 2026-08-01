@@ -166,9 +166,24 @@ export function PillarChartWidget({ pillars }: { pillars?: Array<{ name: string;
 }
 
 export function RecentAnalysisWidget() {
-  const analyses = [
-    { id: "anl_01", repo: "DevPilot-AI", commit: "ed780c8", status: "COMPLETED", date: "Just now", score: null },
-  ];
+  const [analyses, setAnalyses] = React.useState<Array<any>>([]);
+
+  React.useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/analysis/history", {
+          headers: { Authorization: "Bearer mock_jwt_token_demo" },
+        });
+        if (res.ok) {
+          const list = await res.json();
+          setAnalyses(list);
+        }
+      } catch (err) {
+        console.log("Error loading analysis history:", err);
+      }
+    };
+    fetchHistory();
+  }, []);
 
   return (
     <div className="glass-panel p-6 rounded-2xl space-y-6">
@@ -179,29 +194,37 @@ export function RecentAnalysisWidget() {
         </h3>
       </div>
       <div className="space-y-3">
-        {analyses.map((item) => (
-          <div
-            key={item.id}
-            className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all flex items-center justify-between group"
-          >
-            <div className="space-y-1">
-              <div className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">
-                {item.repo}
-              </div>
-              <div className="text-xs font-mono text-slate-500">
-                sha: {item.commit} • {item.date}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-950 text-amber-400 border border-white/10">
-                {item.score !== null ? `${item.score}` : "Not Analyzed"}
-              </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                {item.status}
-              </span>
-            </div>
+        {analyses.length === 0 ? (
+          <div className="p-4 text-xs font-mono text-slate-500 text-center rounded-xl bg-white/[0.02]">
+            No repository analysis runs recorded yet. Click "Analyze Repo" to start scanning.
           </div>
-        ))}
+        ) : (
+          analyses.map((item) => (
+            <div
+              key={item.analysis_id || item.id}
+              className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all flex items-center justify-between group"
+            >
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-white group-hover:text-cyan-400 transition-colors">
+                  {item.repository?.name || item.repo || "Repository"}
+                </div>
+                <div className="text-xs font-mono text-slate-500">
+                  ID: {item.analysis_id || item.id} • {item.created_at ? new Date(item.created_at).toLocaleTimeString() : "Recent"}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-950 text-amber-400 border border-white/10">
+                  {item.health?.overall_health_score !== undefined && item.health?.overall_health_score !== null
+                    ? `${item.health.overall_health_score}%`
+                    : "Scanning"}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  {item.status || "QUEUED"}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

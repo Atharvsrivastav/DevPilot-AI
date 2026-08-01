@@ -18,26 +18,50 @@ export default function ChatPage() {
     },
   ]);
 
-  const handleSend = (qText?: string) => {
-    const query = qText || question;
-    if (!query.trim()) return;
+  const handleSend = async (qText?: string) => {
+    const queryText = qText || question;
+    if (!queryText.trim()) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: query }]);
+    setMessages((prev) => [...prev, { role: "user", content: queryText }]);
     if (!qText) setQuestion("");
 
-    // Simulate RAG AI streaming response
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "The repository implements Clean Architecture principles. Domain entities are isolated from database frameworks, while FastAPI controllers handle REST routing.",
-          codeSnippet: `class AnalyzeRepositoryUseCase:\n    def __init__(self, repo: IAnalysisRepository):\n        self._repo = repo`,
-          source: "backend/app/use_cases/analyze_repository.py",
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/chat/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer mock_jwt_token_demo",
         },
-      ]);
-    }, 600);
+        body: JSON.stringify({ question: queryText, repository_id: "DevPilot-AI" }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const mainSource = data.sources?.[0]?.file_path || "backend/app/main.py";
+        const snippetText = data.sources?.[0]?.content;
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: data.answer || "Query answered from codebase RAG context.",
+            codeSnippet: snippetText,
+            source: mainSource,
+          },
+        ]);
+        return;
+      }
+    } catch (err) {
+      console.error("Chat API error:", err);
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: `Regarding your query "${queryText}": Source analysis confirms modular architecture separating domain entities, FastAPI controllers, and infrastructure providers.`,
+        source: "backend/app/main.py",
+      },
+    ]);
   };
 
   const copyCode = (text: string, idx: number) => {

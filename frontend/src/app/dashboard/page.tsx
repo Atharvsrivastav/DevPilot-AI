@@ -73,10 +73,14 @@ export default function DashboardPage() {
     }
 
     const health = data.health || {};
-    const sec = data.security?.security_score ?? null;
-    const qual = data.quality?.quality_score ?? null;
-    const arch = data.architecture?.architecture_score ?? null;
-    const doc = data.documentation?.documentation_score ?? null;
+    const ind = health.individual_scores || {};
+    const sec = data.security?.security_score ?? ind.security_score ?? null;
+    const qual = data.quality?.quality_score ?? ind.code_quality_score ?? null;
+    const arch = data.architecture?.architecture_score ?? ind.architecture_score ?? null;
+    const doc = data.documentation?.documentation_score ?? ind.documentation_score ?? null;
+    const perf = ind.performance_score ?? null;
+    const deps = ind.dependencies_score ?? null;
+    const test = ind.testing_score ?? null;
     const overall = health.overall_health_score ?? null;
     const grade = health.health_grade || "Not Analyzed";
 
@@ -90,10 +94,10 @@ export default function DashboardPage() {
         { name: "Security", score: sec, color: "bg-emerald-400" },
         { name: "Code Quality", score: qual, color: "bg-cyan-400" },
         { name: "Architecture", score: arch, color: "bg-indigo-400" },
-        { name: "Performance", score: qual !== null ? Math.max(60, qual - 5) : null, color: "bg-amber-400" },
+        { name: "Performance", score: perf, color: "bg-amber-400" },
         { name: "Documentation", score: doc, color: "bg-purple-400" },
-        { name: "Dependencies", score: sec !== null ? Math.min(100, sec + 5) : null, color: "bg-teal-400" },
-        { name: "Testing", score: qual !== null ? Math.max(50, qual - 15) : null, color: "bg-rose-400" },
+        { name: "Dependencies", score: deps, color: "bg-teal-400" },
+        { name: "Testing", score: test, color: "bg-rose-400" },
       ],
       formulas: health.formulas_used || {},
     });

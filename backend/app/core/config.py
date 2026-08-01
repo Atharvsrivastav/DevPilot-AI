@@ -20,9 +20,12 @@ class Settings(BaseSettings):
     POSTGRES_PORT: int = 5432
     DATABASE_URL: str = "postgresql+asyncpg://devpilot:devpilot_password@postgres:5432/devpilot_db"
     
-    # AI Providers
+    # AI Providers (NVIDIA NIM Free Models)
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
+    NVIDIA_API_KEY: str = "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"
+    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_MODEL: str = "deepseek-ai/deepseek-v4-pro"
     
     # JWT Configuration
     JWT_SECRET_KEY: str = "super_secret_jwt_key_change_in_production_123456789"

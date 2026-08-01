@@ -8,15 +8,15 @@ from app.domain.models.health_score import (
 
 
 class HealthScoreCalculatorService:
-    # Base weights for pillars
+    # Exact required weights for health score pillars
     BASE_WEIGHTS = {
-        "security": 0.25,
+        "security": 0.30,
         "code_quality": 0.20,
         "architecture": 0.15,
-        "performance": 0.15,
+        "performance": 0.10,
         "dependencies": 0.10,
-        "testing": 0.10,
-        "documentation": 0.05,
+        "documentation": 0.10,
+        "testing": 0.05,
     }
 
     @classmethod

@@ -89,37 +89,8 @@ export function AnalysisDetailTabs() {
     }, 500);
   };
 
-  const securityFindings = realData?.security?.findings || [
-    {
-      id: "SEC-001",
-      severity: "CRITICAL",
-      title: "Exposed JWT Signing Secret Key",
-      affected_file: "backend/app/core/config.py",
-      line_number: 26,
-      description: "Default plaintext secret key embedded in configuration.",
-      recommendation: "Migrate JWT secrets to environment variables (.env) or Azure Key Vault.",
-    },
-    {
-      id: "SEC-004",
-      severity: "HIGH",
-      title: "SQL Injection Risk in Query Handler",
-      affected_file: "backend/app/infrastructure/database/legacy_query.py",
-      line_number: 42,
-      description: "Raw string concatenation detected inside raw SQL string execution.",
-      recommendation: "Use SQLAlchemy parameterized bind variables or asyncpg placeholders.",
-    },
-  ];
-
-  const qualityFindings = realData?.quality?.findings || [
-    {
-      issue_type: "High Cyclomatic Complexity",
-      title: "Function 'analyze_repository' exceeds decision branch threshold",
-      file_path: "backend/app/infrastructure/github/repo_analyzer.py",
-      line_number: 18,
-      description: "Complexity: 14 (Threshold: 10). Simplify nested decision branches.",
-      recommendation: "Extract decision branches into strategy pattern functions.",
-    },
-  ];
+  const securityFindings = realData?.security?.findings || [];
+  const qualityFindings = realData?.quality?.findings || [];
 
   const tabs = [
     { id: "security", label: "Security Vulnerabilities", icon: ShieldAlert, count: `${securityFindings.length}` },

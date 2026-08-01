@@ -126,19 +126,26 @@ class SecurityScannerService:
         for file_path, content in file_contents_map.items():
             lines = content.splitlines()
             for line_idx, line in enumerate(lines, start=1):
+                clean_line = line.strip()
                 for rule in cls.RULES:
                     if re.search(rule["pattern"], line):
+                        snippet_str = clean_line[:120]
                         findings.append(
                             SecurityFinding(
                                 id=f"SEC-{uuid.uuid4().hex[:8]}",
                                 issue_type=rule["type"],
+                                rule_triggered=rule["id"],
                                 severity=rule["severity"],
                                 title=rule["title"],
                                 description=rule["description"],
+                                explanation=rule["description"],
                                 affected_file=file_path,
                                 line_number=line_idx,
-                                snippet=line.strip()[:100],
+                                snippet=snippet_str,
+                                evidence=snippet_str,
                                 recommendation=rule["recommendation"],
+                                fix_recommendation=rule["recommendation"],
+                                confidence="HIGH",
                                 risk_score=rule["risk_score"],
                                 scanner_source=rule["source"],
                             )
@@ -148,17 +155,23 @@ class SecurityScannerService:
             if file_path.endswith("package.json") or file_path.endswith("requirements.txt"):
                 for vuln in cls.KNOWN_VULNERABLE_PACKAGES:
                     if vuln["name"] in content and vuln["version_prefix"] in content:
+                        ev_str = f"Vulnerable dependency declared: {vuln['name']} ({vuln['cve']})"
                         findings.append(
                             SecurityFinding(
                                 id=f"SEC-{uuid.uuid4().hex[:8]}",
                                 issue_type="Vulnerable Dependency",
+                                rule_triggered=vuln["cve"],
                                 severity=vuln["severity"],
                                 title=f"Vulnerable Dependency: {vuln['name']} ({vuln['cve']})",
                                 description=f"Package {vuln['name']} matching version {vuln['version_prefix']} has known security vulnerabilities.",
+                                explanation=f"Package {vuln['name']} matching version {vuln['version_prefix']} has known security vulnerabilities.",
                                 affected_file=file_path,
-                                line_number=None,
-                                snippet=f"Vulnerable package: {vuln['name']}",
+                                line_number=1,
+                                snippet=ev_str,
+                                evidence=ev_str,
                                 recommendation=vuln["rec"],
+                                fix_recommendation=vuln["rec"],
+                                confidence="HIGH",
                                 risk_score=vuln["risk"],
                                 scanner_source=vuln["source"],
                             )

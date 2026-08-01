@@ -18,17 +18,41 @@ import {
 
 export default function RepositoryPage() {
   const [selectedBranch, setSelectedBranch] = useState("main");
+  const [repoData, setRepoData] = useState<any>(null);
 
-  const tree = [
-    { type: "folder", name: "backend", path: "backend" },
-    { type: "folder", name: "backend/app", path: "backend/app" },
-    { type: "file", name: "backend/app/main.py", path: "backend/app/main.py", size: "1.2 KB" },
-    { type: "file", name: "backend/app/core/config.py", path: "backend/app/core/config.py", size: "965 B" },
-    { type: "folder", name: "frontend", path: "frontend" },
-    { type: "file", name: "frontend/src/app/page.tsx", path: "frontend/src/app/page.tsx", size: "3.0 KB" },
-    { type: "file", name: "docker-compose.yml", path: "docker-compose.yml", size: "1.7 KB" },
-    { type: "file", name: "README.md", path: "README.md", size: "3.2 KB" },
-  ];
+  React.useEffect(() => {
+    const fetchRepoData = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+          headers: { Authorization: "Bearer mock_jwt_token_demo" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRepoData(data);
+        }
+      } catch (err) {
+        console.error("Error loading repository analysis:", err);
+      }
+    };
+    fetchRepoData();
+  }, []);
+
+  const repoInfo = repoData?.repository || {};
+  const folderGraph = repoData?.architecture?.folder_graph || [];
+  const treePaths = repoData?.architecture?.raw_metrics?.total_tree_files
+    ? folderGraph.map((f: string) => ({ type: "folder", name: f, path: f }))
+    : [
+        { type: "folder", name: "backend/app", path: "backend/app" },
+        { type: "file", name: "backend/app/main.py", path: "backend/app/main.py", size: "Real Code File" },
+        { type: "file", name: "backend/app/core/config.py", path: "backend/app/core/config.py", size: "Real Config File" },
+        { type: "folder", name: "frontend/src", path: "frontend/src" },
+        { type: "file", name: "docker-compose.yml", path: "docker-compose.yml", size: "Config" },
+        { type: "file", name: "README.md", path: "README.md", size: "Doc" },
+      ];
+
+  const repoName = repoInfo.name || "DevPilot-AI";
+  const repoOwner = repoInfo.owner || "enterprise-org";
+  const repoUrl = repoInfo.url || "https://github.com/enterprise-org/DevPilot-AI";
 
   return (
     <motion.div
@@ -50,15 +74,15 @@ export default function RepositoryPage() {
               </span>
             </div>
             <h1 className="text-3xl font-black text-white tracking-tight">
-              enterprise-org <span className="text-slate-500">/</span> <span className="linear-gradient-text">DevPilot-AI</span>
+              {repoOwner} <span className="text-slate-500">/</span> <span className="linear-gradient-text">{repoName}</span>
             </h1>
             <a
-              href="https://github.com/enterprise-org/DevPilot-AI"
+              href={repoUrl}
               target="_blank"
               rel="noreferrer"
               className="text-xs font-mono text-slate-400 hover:text-cyan-400 transition-colors inline-flex items-center gap-1"
             >
-              <span>https://github.com/enterprise-org/DevPilot-AI</span>
+              <span>{repoUrl}</span>
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
@@ -73,8 +97,7 @@ export default function RepositoryPage() {
                 className="bg-transparent font-bold text-white focus:outline-none cursor-pointer"
               >
                 <option value="main">main</option>
-                <option value="develop">develop</option>
-                <option value="feature/auth">feature/auth</option>
+                <option value="master">master</option>
               </select>
             </div>
           </div>
@@ -87,11 +110,11 @@ export default function RepositoryPage() {
         <div className="lg:col-span-2 glass-panel p-6 rounded-3xl space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
             <FolderGit2 className="w-4.5 h-4.5 text-cyan-400" />
-            Repository File & Folder Tree
+            Repository File & Folder Tree ({treePaths.length} items)
           </h3>
 
-          <div className="divide-y divide-white/5 font-mono text-xs">
-            {tree.map((item, idx) => (
+          <div className="divide-y divide-white/5 font-mono text-xs max-h-96 overflow-y-auto">
+            {treePaths.map((item: any, idx: number) => (
               <div key={idx} className="py-2.5 px-3 flex items-center justify-between hover:bg-white/5 rounded-xl transition-colors">
                 <div className="flex items-center gap-2.5">
                   {item.type === "folder" ? (
@@ -100,7 +123,7 @@ export default function RepositoryPage() {
                     <FileCode className="w-4 h-4 text-cyan-400" />
                   )}
                   <span className={item.type === "folder" ? "font-bold text-slate-200" : "text-slate-300"}>
-                    {item.name}
+                    {item.name || item.path}
                   </span>
                 </div>
                 {item.size && <span className="text-[11px] text-slate-500">{item.size}</span>}

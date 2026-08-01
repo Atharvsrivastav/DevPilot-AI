@@ -16,15 +16,20 @@ class SeverityLevel(str, Enum):
 class SecurityFinding(BaseModel):
     id: str
     issue_type: str
+    rule_triggered: str = Field(default="SEC-001", description="Rule Triggered ID or pattern name")
     severity: SeverityLevel
     title: str
-    description: str
-    affected_file: str
-    line_number: Optional[int] = None
-    snippet: Optional[str] = None
-    recommendation: str
-    risk_score: float = Field(..., description="Risk score between 0.0 and 10.0")
-    scanner_source: str = Field(default="DevPilot Security Rules Engine", description="Tool/Scanner source evidence")
+    description: str  # Explanation
+    explanation: Optional[str] = None
+    affected_file: str  # File
+    line_number: Optional[int] = None  # Line Number
+    snippet: Optional[str] = None  # Evidence
+    evidence: Optional[str] = None
+    recommendation: str  # Fix Recommendation
+    fix_recommendation: Optional[str] = None
+    confidence: str = Field(default="HIGH", description="Confidence rating (HIGH, MEDIUM, LOW)")
+    risk_score: float = Field(default=5.0, description="Risk score between 0.0 and 10.0")
+    scanner_source: str = Field(default="DevPilot Security Engine", description="Tool/Scanner source evidence")
 
 
 class SecurityScanResult(BaseModel):

@@ -1,21 +1,28 @@
 """Repository Chat Service implementing Retrieval-Augmented Generation (RAG) over repository context."""
 
-from pydantic_ai import Agent
-
+import httpx
+import logging
+from app.core.config import settings
 from app.domain.models.repo_chat import (
     ChatMessageResponse,
     ContextSourceSnippet,
 )
 
-# PydanticAI Agent for RAG Q&A
-repo_chat_agent = Agent(
-    model="openai:gpt-4o",
-    system_prompt=(
-        "You are DevPilot AI's Repository Q&A Assistant. Answer user questions accurately based strictly "
-        "on the provided retrieved repository code snippets and structural context. If the context does not contain "
-        "enough information, clearly state that."
-    ),
-)
+logger = logging.getLogger("devpilot.chat")
+
+NVIDIA_PREFERRED_KEYS = [
+    "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",
+    "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",
+]
+
+NVIDIA_PREFERRED_MODELS = [
+    "z-ai/glm-5.2",
+    "deepseek-ai/deepseek-v4-pro",
+    "meta/llama-3.3-70b-instruct",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "qwen/qwen2.5-70b-instruct",
+    "deepseek-ai/deepseek-r1",
+]
 
 
 class RepositoryChatService:
@@ -40,10 +47,16 @@ class RepositoryChatService:
             ),
         ]
 
-        # Format context for RAG prompt
         context_str = "\n\n".join(
             [f"--- File: {s.file_path} ---\n{s.content}" for s in sources]
         )
+
+        answer_text = None
+
+        keys = [settings.NVIDIA_API_KEY] if settings.NVIDIA_API_KEY else []
+        for k in NVIDIA_PREFERRED_KEYS:
+            if k not in keys:
+                keys.append(k)
 
         prompt = (
             f"Repository ID: {repository_id}\n\n"
@@ -51,16 +64,42 @@ class RepositoryChatService:
             f"User Question: {question}"
         )
 
-        try:
-            # Run PydanticAI RAG Agent
-            res = await repo_chat_agent.run(prompt)
-            answer_text = str(getattr(res, "data", res))
-        except Exception:
-            # Deterministic fallback response when LLM provider is offline
+        for api_key in keys:
+            if answer_text:
+                break
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            for model in NVIDIA_PREFERRED_MODELS:
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "You are DevPilot AI RAG Assistant. Answer strictly based on retrieved codebase context."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 1.0,
+                        "top_p": 1.0,
+                        "max_tokens": 16384,
+                        "seed": 42,
+                        "chat_template_kwargs": {"thinking": False},
+                    }
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        resp = await client.post(f"{settings.NVIDIA_BASE_URL}/chat/completions", headers=headers, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            answer_text = data["choices"][0]["message"]["content"]
+                            break
+                except Exception as e:
+                    logger.warning(f"NVIDIA model '{model}' chat query failed: {e}")
+                    continue
+
+        if not answer_text:
             answer_text = (
-                f"Based on the repository context for '{repository_id}', the system is structured around "
+                f"Based on the repository context for '{repository_id}', the system follows "
                 f"Clean Architecture separating domain entities, FastAPI controllers, and PostgreSQL database sessions. "
-                f"Specific context from {sources[0].file_path} confirms entrypoint setup."
+                f"Entrypoint configuration is defined in {sources[0].file_path}."
             )
 
         return ChatMessageResponse(

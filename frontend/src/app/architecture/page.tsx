@@ -5,7 +5,30 @@ import { motion } from "framer-motion";
 import { GitPullRequest, Layers, CheckCircle2, ArrowRight, Database, Server, Code2 } from "lucide-react";
 
 export default function ArchitecturePage() {
-  const [selectedPattern] = useState("Clean Architecture");
+  const [archData, setArchData] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    const fetchArchData = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+          headers: { Authorization: "Bearer mock_jwt_token_demo" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setArchData(data.architecture);
+        }
+      } catch (err) {
+        console.error("Error loading architecture data:", err);
+      }
+    };
+    fetchArchData();
+  }, []);
+
+  const patternName = archData?.detected_pattern || "Not Analyzed";
+  const confidence = archData?.confidence_score ?? "N/A";
+  const modularity = archData?.modularity_score ?? "N/A";
+  const coupling = archData?.coupling_score ?? "N/A";
+  const mermaidDiagram = archData?.mermaid_diagram || "graph TD\n    NoData['Run Repository Analysis to generate architecture diagram']";
 
   return (
     <motion.div
@@ -31,7 +54,7 @@ export default function ArchitecturePage() {
 
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono px-3.5 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-            Pattern: {selectedPattern} (Confidence: 95%)
+            Pattern: {patternName} (Confidence: {confidence}%)
           </span>
         </div>
       </div>
@@ -40,26 +63,26 @@ export default function ArchitecturePage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <div className="glass-panel p-5 rounded-2xl space-y-1">
           <div className="text-xs font-semibold text-slate-400 uppercase">Modularity Score</div>
-          <div className="text-3xl font-black text-indigo-400 font-mono">90 / 100</div>
-          <div className="text-[11px] text-slate-500 font-mono">High Component Isolation</div>
+          <div className="text-3xl font-black text-indigo-400 font-mono">{modularity} {modularity !== "N/A" ? "/ 100" : ""}</div>
+          <div className="text-[11px] text-slate-500 font-mono">Component Isolation Rating</div>
         </div>
         <div className="glass-panel p-5 rounded-2xl space-y-1">
           <div className="text-xs font-semibold text-slate-400 uppercase">Coupling Index</div>
-          <div className="text-3xl font-black text-emerald-400 font-mono">20 / 100</div>
-          <div className="text-[11px] text-slate-500 font-mono">Loose Coupling Enforced</div>
+          <div className="text-3xl font-black text-emerald-400 font-mono">{coupling} {coupling !== "N/A" ? "/ 100" : ""}</div>
+          <div className="text-[11px] text-slate-500 font-mono">Layer Interdependence Index</div>
         </div>
         <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Circular Dependencies</div>
-          <div className="text-3xl font-black text-cyan-400 font-mono">0 Detected</div>
-          <div className="text-[11px] text-slate-500 font-mono">Clean DAG Hierarchy</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase">Architecture Rating</div>
+          <div className="text-3xl font-black text-cyan-400 font-mono">{archData?.architecture_score ?? "N/A"} {archData?.architecture_score ? "/ 100" : ""}</div>
+          <div className="text-[11px] text-slate-500 font-mono">Calculated Score</div>
         </div>
       </div>
 
-      {/* Clean Architecture Diagram Visualizer */}
+      {/* Architecture Diagram Visualizer */}
       <div className="glass-panel p-8 rounded-3xl space-y-6">
         <h3 className="text-lg font-bold text-white flex items-center gap-2">
           <Layers className="w-5 h-5 text-indigo-400" />
-          Clean Architecture Layer Isolation Map
+          Detected Architecture Layer Isolation Map: {patternName}
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center font-mono">
@@ -88,32 +111,9 @@ export default function ArchitecturePage() {
 
       {/* Mermaid.js Diagram Source Box */}
       <div className="glass-panel p-6 rounded-3xl space-y-3 font-mono text-xs">
-        <h4 className="font-bold text-white text-sm">Mermaid.js Flowchart Representation</h4>
+        <h4 className="font-bold text-white text-sm">Generated Mermaid.js Flowchart</h4>
         <div className="p-4 rounded-2xl bg-slate-950 text-slate-300 border border-white/10 overflow-x-auto leading-relaxed">
-          <pre>{`graph TD
-    subgraph External ["External / Presentation"]
-        API["FastAPI / Next.js Controllers"]
-    end
-
-    subgraph Infra ["Infrastructure Layer"]
-        DB["PostgreSQL / pgvector DB"]
-        GitHub["GitHub API Client"]
-    end
-
-    subgraph UseCases ["Application Use Cases"]
-        UC["AnalyzeRepository UseCase"]
-    end
-
-    subgraph Domain ["Core Domain Layer"]
-        Model["Domain Entities"]
-        Interface["Repository Interfaces"]
-    end
-
-    API --> UC
-    UC --> Model
-    UC --> Interface
-    DB -.-> Interface
-    GitHub -.-> Interface`}</pre>
+          <pre>{mermaidDiagram}</pre>
         </div>
       </div>
     </motion.div>
