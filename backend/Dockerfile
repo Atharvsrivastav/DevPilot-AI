@@ -11,14 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv package manager
 RUN pip install --no-cache-dir uv
 
-# Copy dependency manifests & readme for build backend validation
-COPY pyproject.toml README.md* ./
-
-# Install dependencies using uv
-RUN uv pip install --system .
-
-# Copy application source code
+# Copy application source code & dependency manifests
 COPY . .
+
+# Install dependencies and project package using uv
+RUN uv pip install --system .
 
 EXPOSE 8000
 
