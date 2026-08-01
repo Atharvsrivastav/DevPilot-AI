@@ -5,9 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Cpu, LayoutDashboard, Github, Menu, X, FileText } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const apiDocsUrl = `${getApiBaseUrl()}/docs`;
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[#030712]/85 backdrop-blur-md">
@@ -39,7 +42,7 @@ export function Header() {
             <span>Dashboard</span>
           </Link>
           <a
-            href="http://localhost:8000/docs"
+            href={apiDocsUrl}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
@@ -48,7 +51,7 @@ export function Header() {
             <span>API Docs</span>
           </a>
           <a
-            href="https://github.com"
+            href="https://github.com/Atharvsrivastav/DevPilot-AI"
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
@@ -85,7 +88,7 @@ export function Header() {
             <span>Dashboard</span>
           </Link>
           <a
-            href="http://localhost:8000/docs"
+            href={apiDocsUrl}
             target="_blank"
             rel="noreferrer"
             onClick={() => setMobileMenuOpen(false)}
@@ -95,7 +98,7 @@ export function Header() {
             <span>API Docs</span>
           </a>
           <a
-            href="https://github.com"
+            href="https://github.com/Atharvsrivastav/DevPilot-AI"
             target="_blank"
             rel="noreferrer"
             onClick={() => setMobileMenuOpen(false)}

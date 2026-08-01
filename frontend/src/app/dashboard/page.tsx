@@ -11,6 +11,7 @@ import {
 import { AnalyzeModal } from "@/components/AnalyzeModal";
 import { AnalysisDetailTabs } from "@/components/AnalysisDetailTabs";
 import { Sparkles, RefreshCw, Plus, ShieldCheck, Activity, Cpu, GitPullRequest } from "lucide-react";
+import { getApiBaseUrl } from "@/config/api";
 
 export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -49,7 +50,8 @@ export default function DashboardPage() {
   const fetchLatestAnalysis = async () => {
     try {
       setRefreshing(true);
-      const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
         headers: { Authorization: "Bearer mock_jwt_token_demo" },
       });
       if (res.ok) {

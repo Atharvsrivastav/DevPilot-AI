@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Sparkles, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { getApiBaseUrl } from "@/config/api";
 
 interface AnalyzeModalProps {
   isOpen: boolean;
@@ -27,7 +28,8 @@ export function AnalyzeModal({ isOpen, onClose, onAnalysisComplete }: AnalyzeMod
     if (analysisId && loading) {
       interval = setInterval(async () => {
         try {
-          const res = await fetch(`http://localhost:8000/api/v1/analysis/${analysisId}`, {
+          const baseUrl = getApiBaseUrl();
+          const res = await fetch(`${baseUrl}/api/v1/analysis/${analysisId}`, {
             headers: { Authorization: "Bearer mock_jwt_token_demo" },
           });
           if (res.ok) {
@@ -71,7 +73,8 @@ export function AnalyzeModal({ isOpen, onClose, onAnalysisComplete }: AnalyzeMod
     setCurrentStep("Queueing analysis task...");
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/analysis", {
+      const baseUrl = getApiBaseUrl();
+      const response = await fetch(`${baseUrl}/api/v1/analysis`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

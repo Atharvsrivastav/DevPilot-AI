@@ -4,13 +4,16 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { GitPullRequest, Layers, CheckCircle2, ArrowRight, Database, Server, Code2 } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export default function ArchitecturePage() {
   const [archData, setArchData] = React.useState<any>(null);
 
   React.useEffect(() => {
     const fetchArchData = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {

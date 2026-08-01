@@ -165,21 +165,28 @@ export function PillarChartWidget({ pillars }: { pillars?: Array<{ name: string;
   );
 }
 
+import { getApiBaseUrl } from "@/config/api";
+
 export function RecentAnalysisWidget() {
-  const [analyses, setAnalyses] = React.useState<Array<any>>([]);
+  const [historyList, setHistoryList] = React.useState<Array<any>>([]);
+  const [loading, setLoading] = React.useState<boolean>(true);
 
   React.useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/v1/analysis/history", {
+        setLoading(true);
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/history`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {
           const list = await res.json();
-          setAnalyses(list);
+          setHistoryList(list);
         }
       } catch (err) {
-        console.log("Error loading analysis history:", err);
+        console.error("Error loading widget history:", err);
+      } finally {
+        setLoading(false);
       }
     };
     fetchHistory();

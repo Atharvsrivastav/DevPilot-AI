@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Send, Sparkles, Code2, Copy, Check, Terminal } from "lucide-react";
+import { getApiBaseUrl } from "@/config/api";
 
 export default function ChatPage() {
   const [question, setQuestion] = useState("");
@@ -26,7 +27,8 @@ export default function ChatPage() {
     if (!qText) setQuestion("");
 
     try {
-      const res = await fetch("http://localhost:8000/api/v1/chat/query", {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/v1/chat/query`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

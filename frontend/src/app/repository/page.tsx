@@ -16,6 +16,8 @@ import {
   GitFork,
 } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export default function RepositoryPage() {
   const [selectedBranch, setSelectedBranch] = useState("main");
   const [repoData, setRepoData] = useState<any>(null);
@@ -23,7 +25,8 @@ export default function RepositoryPage() {
   React.useEffect(() => {
     const fetchRepoData = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {

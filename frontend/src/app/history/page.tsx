@@ -4,6 +4,8 @@ import React from "react";
 import { motion } from "framer-motion";
 import { History as HistoryIcon, GitCommit, CheckCircle2, Clock, Calendar } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export default function HistoryPage() {
   const [historyList, setHistoryList] = React.useState<Array<any>>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -12,7 +14,8 @@ export default function HistoryPage() {
     const fetchHistory = async () => {
       try {
         setLoading(true);
-        const res = await fetch("http://localhost:8000/api/v1/analysis/history", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/history`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {

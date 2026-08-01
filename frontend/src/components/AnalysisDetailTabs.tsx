@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Code2,
 } from "lucide-react";
+import { getApiBaseUrl } from "@/config/api";
 
 export function AnalysisDetailTabs() {
   const [activeTab, setActiveTab] = useState<"security" | "quality" | "architecture" | "reviewer" | "chat">("security");
@@ -30,7 +31,8 @@ export function AnalysisDetailTabs() {
   useEffect(() => {
     const fetchLatest = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {
@@ -53,7 +55,8 @@ export function AnalysisDetailTabs() {
     setChatQuestion("");
 
     try {
-      const res = await fetch("http://localhost:8000/api/v1/chat/query", {
+      const baseUrl = getApiBaseUrl();
+      const res = await fetch(`${baseUrl}/api/v1/chat/query`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

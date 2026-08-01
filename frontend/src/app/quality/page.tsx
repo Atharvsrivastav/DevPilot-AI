@@ -4,6 +4,8 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Cpu, CheckCircle2, AlertTriangle, FileCode, Layers, Activity } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export default function CodeQualityPage() {
   const [qualityData, setQualityData] = React.useState<any>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -12,7 +14,8 @@ export default function CodeQualityPage() {
     const fetchQualityData = async () => {
       try {
         setLoading(true);
-        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {

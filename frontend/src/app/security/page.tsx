@@ -13,6 +13,8 @@ import {
   Calculator,
 } from "lucide-react";
 
+import { getApiBaseUrl } from "@/config/api";
+
 export default function SecurityPage() {
   const [filterSeverity, setFilterSeverity] = useState<string>("ALL");
   const [vulnerabilities, setVulnerabilities] = useState<Array<any>>([]);
@@ -22,7 +24,8 @@ export default function SecurityPage() {
     const fetchSecurityData = async () => {
       try {
         setLoading(true);
-        const res = await fetch("http://localhost:8000/api/v1/analysis/latest", {
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
           headers: { Authorization: "Bearer mock_jwt_token_demo" },
         });
         if (res.ok) {
