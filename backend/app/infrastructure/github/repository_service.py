@@ -107,8 +107,9 @@ class GitHubRepositoryService:
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "DevPilot-AI-Service",
         }
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        token = (self.access_token or "").strip()
+        if token and not token.startswith("your_") and token.lower() != "none":
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     @staticmethod
@@ -162,7 +163,7 @@ class GitHubRepositoryService:
             return cached[1]
         try:
             async with httpx.AsyncClient(
-                headers=self._headers(), timeout=REQUEST_TIMEOUT
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
             ) as client:
                 res = await client.get(f"{self.base_url}/repos/{owner}/{repo}")
         except httpx.HTTPError as e:
@@ -181,7 +182,7 @@ class GitHubRepositoryService:
         """Newest commit SHA on a branch (best-effort — returns None if unavailable)."""
         try:
             async with httpx.AsyncClient(
-                headers=self._headers(), timeout=REQUEST_TIMEOUT
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
             ) as client:
                 res = await client.get(
                     f"{self.base_url}/repos/{owner}/{repo}/commits",
@@ -193,13 +194,67 @@ class GitHubRepositoryService:
             pass
         return None
 
+    async def get_recent_commits(
+        self, owner: str, repo: str, branch: str = "main", count: int = 10
+    ) -> list[dict[str, Any]]:
+        """Fetch list of recent commits on a branch (best-effort)."""
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
+            ) as client:
+                res = await client.get(
+                    f"{self.base_url}/repos/{owner}/{repo}/commits",
+                    params={"sha": branch, "per_page": count},
+                )
+            if res.status_code == 200 and isinstance(res.json(), list):
+                result = []
+                for c in res.json():
+                    commit_obj = c.get("commit", {})
+                    author_obj = commit_obj.get("author", {})
+                    result.append({
+                        "sha": (c.get("sha") or "")[:7],
+                        "message": (commit_obj.get("message") or "").split("\n")[0],
+                        "author_name": author_obj.get("name", "Unknown"),
+                        "date": author_obj.get("date", ""),
+                    })
+                return result
+        except httpx.HTTPError:
+            pass
+        return []
+
+    async def get_top_contributors(
+        self, owner: str, repo: str, count: int = 10
+    ) -> list[dict[str, Any]]:
+        """Fetch list of top contributors (best-effort)."""
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
+            ) as client:
+                res = await client.get(
+                    f"{self.base_url}/repos/{owner}/{repo}/contributors",
+                    params={"per_page": count},
+                )
+            if res.status_code == 200 and isinstance(res.json(), list):
+                result = []
+                for contrib in res.json():
+                    result.append({
+                        "login": contrib.get("login", ""),
+                        "contributions": contrib.get("contributions", 0),
+                        "avatar_url": contrib.get("avatar_url"),
+                        "html_url": contrib.get("html_url"),
+                    })
+                return result
+        except httpx.HTTPError:
+            pass
+        return []
+
     async def get_repository_tree(
         self, owner: str, repo: str, branch: str = "main"
     ) -> list[str]:
         """Fetch recursive file tree paths (required — raises GitHubError on failure)."""
         try:
             async with httpx.AsyncClient(
-                headers=self._headers(), timeout=REQUEST_TIMEOUT
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
             ) as client:
                 res = await client.get(
                     f"{self.base_url}/repos/{owner}/{repo}/git/trees/{branch}",
@@ -253,7 +308,7 @@ class GitHubRepositoryService:
                     return
 
         async with httpx.AsyncClient(
-            headers=self._headers(), timeout=REQUEST_TIMEOUT
+            headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
         ) as client:
             await asyncio.gather(*(_fetch(client, p) for p in targets))
         return files_map
@@ -299,7 +354,7 @@ class GitHubRepositoryService:
         owner, repo = parse_github_url(repo_url)
 
         async with httpx.AsyncClient(
-            headers=self._headers(), timeout=REQUEST_TIMEOUT
+            headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
         ) as client:
             try:
                 repo_res = await client.get(f"{self.base_url}/repos/{owner}/{repo}")
@@ -395,3 +450,21 @@ class GitHubRepositoryService:
                 license_name=license_name,
                 folder_tree=tree_paths,
             )
+
+    async def get_raw_file_content(
+        self, owner: str, repo: str, branch: str, file_path: str
+    ) -> str | None:
+        """Fetch raw text for a specific file on a branch."""
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
+            ) as client:
+                res = await client.get(
+                    f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+                )
+                if res.status_code == 200:
+                    return res.text
+        except httpx.HTTPError:
+            pass
+        return None
+

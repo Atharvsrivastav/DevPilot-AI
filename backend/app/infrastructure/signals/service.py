@@ -138,76 +138,189 @@ def score_testing(tree_paths: list[str], files_map: dict[str, str]) -> dict[str,
     reasons: list[str] = []
     evidence: list[str] = []
 
-    test_files = _count_matching(
-        tree_paths,
-        lambda p: (
-            "/test/" in p or "/tests/" in p or p.startswith("test/") or p.startswith("tests/")
-            or "/__tests__/" in p or p.endswith("_test.py") or p.endswith("_test.go")
-            or p.endswith(".spec.ts") or p.endswith(".spec.js")
-            or p.endswith(".test.ts") or p.endswith(".test.js")
-            or p.endswith("test_*.py") or p.startswith("test_")
-        ),
-    )
-    test_files = [p for p in test_files if "__pycache__" not in p][:40]
+    # Detect test directories and test files across JS, TS, Python, Go, Java, Rust, C#, PHP, Ruby
+    def _is_test_path(p: str) -> bool:
+        low = p.lower()
+        if "__pycache__" in low or "node_modules" in low:
+            return False
+        # Directories
+        if any(d in low for d in ("/test/", "/tests/", "/__tests__/", "/spec/", "/specs/")):
+            return True
+        if low.startswith(("test/", "tests/", "__tests__/", "spec/", "specs/")):
+            return True
+        # Filename conventions
+        base = low.rsplit("/", 1)[-1]
+        if (
+            base.endswith((".test.ts", ".test.js", ".test.tsx", ".test.jsx", ".spec.ts", ".spec.js", ".spec.tsx", ".spec.jsx"))
+            or base.endswith(("_test.py", "_test.go", "_spec.rb"))
+            or base.startswith(("test_", "spec_"))
+            or base.endswith(("test.java", "tests.java", "testcase.java", "test.kt", "tests.kt", "tests.cs", "test.php"))
+        ):
+            return True
+        return False
 
-    score = 0
-    if test_files:
-        score += 45
-        evidence.extend(test_files[:20])
-        reasons.append(f"{len(test_files)} test file(s) detected in the tree.")
-    else:
-        reasons.append("No test files or test directories detected.")
+    test_files = [p for p in tree_paths if _is_test_path(p)][:60]
 
     names = _basenames(tree_paths)
     test_configs = {
-        "jest.config.js", "jest.config.ts", "jest.config.cjs",
-        "vitest.config.ts", "vitest.config.js", "pytest.ini",
-        "tox.ini", "phpunit.xml", "phpunit.xml.dist", "karma.conf.js",
+        "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json",
+        "vitest.config.ts", "vitest.config.js", "vitest.config.mjs",
+        "playwright.config.ts", "playwright.config.js",
+        "cypress.config.ts", "cypress.config.js", "cypress.json",
+        "pytest.ini", ".pytest.ini", "tox.ini",
+        ".mocharc.json", ".mocharc.js", ".mocharc.yml",
+        "phpunit.xml", "phpunit.xml.dist", "karma.conf.js",
     }
     found_configs = sorted(test_configs & names)
     has_pytest_cfg = any(
-        p.lower().endswith("pyproject.toml") and "[tool.pytest" in (files_map.get(p, ""))
+        p.lower().endswith("pyproject.toml") and ("[tool.pytest" in (files_map.get(p, "")) or "pytest" in (files_map.get(p, "")))
         for p in files_map
     )
-    if found_configs or has_pytest_cfg:
-        score += 20
-        evidence.extend(found_configs)
-        if has_pytest_cfg:
-            evidence.append("pyproject.toml ([tool.pytest.ini_options])")
-        reasons.append("Test runner configuration detected.")
-    else:
-        reasons.append("No test runner configuration detected.")
+    if has_pytest_cfg:
+        found_configs.append("pyproject.toml (pytest configured)")
 
+    # Check for test scripts in package.json
+    has_npm_test_script = False
+    for p, content in files_map.items():
+        if p.lower().endswith("package.json"):
+            try:
+                pkg_data = json.loads(content)
+                scripts = pkg_data.get("scripts", {})
+                if "test" in scripts and "no test specified" not in scripts["test"].lower():
+                    has_npm_test_script = True
+                    found_configs.append(f"package.json (test script: {scripts['test'][:40]})")
+            except Exception:
+                pass
+
+    # Inspect GitHub Actions CI test steps
     ci_dir = _has_dir(tree_paths, ".github/workflows")
     ci_runs_tests = False
+    ci_test_workflows: list[str] = []
     if ci_dir:
         for p in tree_paths:
             low = p.lower()
             if low.startswith(".github/workflows/") and low.endswith((".yml", ".yaml")):
                 content = files_map.get(p, "")
-                evidence.append(p)
-                if any(k in content.lower() for k in ("pytest", "jest", "vitest", "go test", "cargo test", "npm test", "phpunit")):
+                if any(k in content.lower() for k in ("pytest", "jest", "vitest", "go test", "cargo test", "npm test", "npm run test", "yarn test", "pnpm test", "phpunit", "mvn test", "gradle test")):
                     ci_runs_tests = True
-    if ci_runs_tests:
-        score += 25
-        reasons.append("CI workflow executes a test suite.")
-    elif ci_dir:
-        score += 10
-        reasons.append("CI workflows exist but no test execution step was detected in fetched files.")
-    else:
-        reasons.append("No CI workflow directory (.github/workflows) detected.")
+                    ci_test_workflows.append(p)
 
-    if test_files and (found_configs or has_pytest_cfg or ci_runs_tests):
-        score += 10
+    score = 0
+    if not test_files and not found_configs:
+        posture = "NO_TESTS"
+        score = 0
+        reasons.append("No test files, test directories, or test runner configuration detected.")
+    elif test_files and (found_configs or ci_runs_tests):
+        if ci_runs_tests:
+            posture = "TESTS_AND_CI_VERIFIED"
+            score = min(100, 50 + min(25, len(test_files) * 2) + 15 + (10 if found_configs else 0))
+            reasons.append(f"Tests detected ({len(test_files)} file(s)) and automated CI test execution verified in {', '.join(ci_test_workflows[:2])}.")
+            evidence.extend(ci_test_workflows)
+        else:
+            posture = "TESTS_DETECTED_WEAK_CI"
+            score = min(75, 40 + min(20, len(test_files) * 2) + (15 if found_configs else 0))
+            reasons.append(f"Tests detected ({len(test_files)} file(s)), but weak automated CI execution evidence in repository workflows.")
+    elif found_configs:
+        posture = "TEST_CONFIG_ONLY"
+        score = 45
+        reasons.append(f"Test configuration detected ({', '.join(found_configs[:2])}), but few/no explicit test files matched in the scanned tree.")
+    else:
+        posture = "TEST_FILES_UNCONFIGURED"
+        score = 40
+        reasons.append(f"{len(test_files)} test file(s) detected, but no runner configuration or CI test step verified.")
+
+    if test_files:
+        evidence.extend(test_files[:15])
+    if found_configs:
+        evidence.extend(found_configs[:5])
 
     return {
         "score": min(100, score),
+        "posture": posture,
         "reasons": reasons,
-        "evidence": evidence[:40],
+        "evidence": evidence[:35],
         "metrics": {
-            "test_files": len(test_files),
+            "test_files_count": len(test_files),
             "test_configs": found_configs,
             "ci_runs_tests": ci_runs_tests,
+            "ci_test_workflows": ci_test_workflows,
+            "posture": posture,
+        },
+    }
+
+
+def score_activity(
+    repo_data: dict[str, Any],
+    recent_commits: list[dict[str, Any]],
+    contributors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Calculate development activity score based strictly on real commits, contributors, and push dates."""
+    reasons: list[str] = []
+    evidence: list[str] = []
+    score = 20  # Base score for an existing repository
+
+    # 1. Commit Freshness (from commits list or pushed_at timestamp)
+    commits_count = len(recent_commits) if recent_commits else 0
+    if commits_count > 0:
+        evidence.append(f"{commits_count} recent commit(s) inspected")
+        score += min(25, commits_count * 3)
+
+        # Check latest commit date if available
+        first_commit = recent_commits[0]
+        c_date_str = first_commit.get("date") if isinstance(first_commit, dict) else getattr(first_commit, "date", None)
+        if c_date_str:
+            evidence.append(f"Latest commit: {c_date_str[:10]} ('{(first_commit.get('message') or '')[:40]}')")
+            # Parse freshness
+            try:
+                from datetime import datetime, timezone
+                c_dt = datetime.fromisoformat(c_date_str.replace("Z", "+00:00"))
+                days_ago = (datetime.now(timezone.utc) - c_dt).days
+                if days_ago <= 7:
+                    score += 35
+                    reasons.append(f"High development activity — newest commit is {days_ago} day(s) old.")
+                elif days_ago <= 30:
+                    score += 25
+                    reasons.append(f"Active maintenance — newest commit is {days_ago} days old.")
+                elif days_ago <= 90:
+                    score += 15
+                    reasons.append(f"Moderate activity — newest commit was {days_ago} days ago.")
+                else:
+                    score += 5
+                    reasons.append(f"Low recent activity — newest commit was {days_ago} days ago.")
+            except Exception:
+                score += 15
+                reasons.append("Recent commits observed on active branch.")
+    else:
+        reasons.append("No recent commits returned in the inspected sample.")
+
+    # 2. Contributor Diversity
+    contrib_count = len(contributors) if contributors else 0
+    if contrib_count >= 5:
+        score += 20
+        reasons.append(f"Collaborative project with {contrib_count}+ identified contributors.")
+        evidence.append(f"{contrib_count} top contributors recorded")
+    elif contrib_count >= 2:
+        score += 15
+        reasons.append(f"Active collaboration with {contrib_count} contributors.")
+        evidence.append(f"{contrib_count} contributors recorded")
+    elif contrib_count == 1:
+        score += 10
+        reasons.append("Single active maintainer observed in contributor sample.")
+        evidence.append("1 contributor recorded")
+    else:
+        reasons.append("Contributor data was not available or empty.")
+
+    final_score = max(10, min(100, score))
+
+    return {
+        "score": final_score,
+        "reasons": reasons,
+        "evidence": evidence[:25],
+        "metrics": {
+            "recent_commits_inspected": commits_count,
+            "contributors_count": contrib_count,
+            "stars": repo_data.get("stars"),
+            "open_issues": repo_data.get("open_issues"),
         },
     }
 
@@ -231,7 +344,6 @@ def score_performance_signals(
             for _ in [0]
         )
     ]
-    # files_map only holds fetched key files; large blobs outside it are unknown.
     score = 70
     if large:
         score -= min(30, 5 * len(large))

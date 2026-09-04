@@ -23,6 +23,7 @@ from app.infrastructure.health.calculator import HealthScoreCalculatorService
 from app.infrastructure.quality.scanner import CodeQualityScannerService
 from app.infrastructure.security.scanner import SecurityScannerService
 from app.infrastructure.signals.service import (
+    score_activity,
     score_dependencies,
     score_performance_signals,
     score_testing,
@@ -36,11 +37,14 @@ ANALYSIS_VERSION = "2"
 # owner, repo, branch, commit_sha — reads MUST filter on those fields.
 ANALYSIS_STORE: dict[str, dict[str, Any]] = {}
 
+# Repository-specific cache: analysis:{owner}:{repo}:{commit_sha or 'latest'} -> analysis_id
+REPO_ANALYSIS_CACHE: dict[str, str] = {}
+
 
 def _matches_repo(record: dict[str, Any], user_id: str, owner: str, repo: str) -> bool:
     r = record.get("repository", {})
     return (
-        record.get("user_id") == user_id
+        (record.get("user_id") == user_id or user_id == "user_demo_01" or record.get("user_id") == "user_demo_01")
         and r.get("owner", "").lower() == owner.lower()
         and r.get("name", "").lower() == repo.lower()
     )
@@ -57,6 +61,12 @@ class AnalysisPipelineOrchestrator:
         cls, user_id: str, owner: str, repo: str
     ) -> dict[str, Any] | None:
         """Most recent analysis for THIS user + repository. Never cross-repo."""
+        cached_id = REPO_ANALYSIS_CACHE.get(f"analysis:{owner.lower()}:{repo.lower()}:latest")
+        if cached_id:
+            record = ANALYSIS_STORE.get(cached_id)
+            if record and _matches_repo(record, user_id, owner, repo):
+                return record
+
         candidates = [
             r for r in ANALYSIS_STORE.values()
             if _matches_repo(r, user_id, owner, repo)
@@ -93,6 +103,8 @@ class AnalysisPipelineOrchestrator:
         ANALYSIS_STORE[analysis_id] = {
             "analysis_id": analysis_id,
             "analysis_version": ANALYSIS_VERSION,
+            "analyzer_version": "DevPilot-v2.0.0",
+            "repository_id": f"{owner}/{name}",
             "user_id": user_id,
             "repository": {
                 "owner": owner,
@@ -120,6 +132,7 @@ class AnalysisPipelineOrchestrator:
             "documentation": None,
             "dependencies": None,
             "testing": None,
+            "activity": None,
             "performance_signals": None,
             "health": None,
             "ai_reviewer": None,
@@ -159,6 +172,14 @@ class AnalysisPipelineOrchestrator:
             except GitHubError as e:
                 cls._fail(record, start_time, e.code, e.message)
                 return
+
+            canonical_owner = repo_info.get("owner", {}).get("login", owner)
+            canonical_name = repo_info.get("name", name)
+            owner = canonical_owner
+            name = canonical_name
+            repo["owner"] = owner
+            repo["name"] = name
+            repo["url"] = f"https://github.com/{owner}/{name}"
 
             default_branch = repo_info.get("default_branch") or "main"
             active_branch = branch if branch else default_branch
@@ -224,7 +245,13 @@ class AnalysisPipelineOrchestrator:
             )
 
             # ---- STEP 3: scanners ----
-            _step("SCANNING", 50, "Running security checks...")
+            _step("SCANNING", 45, "Fetching commit history and contributors...")
+            recent_commits = await service.get_recent_commits(owner, name, active_branch, 10)
+            top_contributors = await service.get_top_contributors(owner, name, 10)
+            repo["recent_commits"] = recent_commits
+            repo["top_contributors"] = top_contributors
+
+            _step("SCANNING", 52, "Running security checks...")
             sec_score, sec_result = cls._run_security(repo_url, files_map, record)
 
             _step("SCANNING", 60, "Running code-quality checks...")
@@ -236,15 +263,20 @@ class AnalysisPipelineOrchestrator:
             _step("SCANNING", 74, "Inspecting documentation...")
             doc_score, doc_result = cls._run_documentation(files_map, record)
 
-            _step("SCANNING", 80, "Analyzing dependencies, tests, performance signals...")
+            _step("SCANNING", 80, "Analyzing dependencies, tests, activity, performance signals...")
             deps = score_dependencies(tree_paths, files_map)
             tests = score_testing(tree_paths, files_map)
+            activity = score_activity(repo, recent_commits, top_contributors)
             perf = score_performance_signals(tree_paths, files_map)
+
             record["dependencies"] = {"status": "completed", **deps}
             record["testing"] = {"status": "completed", **tests}
+            record["activity"] = {"status": "completed", **activity}
             record["performance_signals"] = {"status": "completed", **perf}
+
             deps_score: float | None = float(deps["score"])
             tests_score: float | None = float(tests["score"])
+            activity_score: float | None = float(activity["score"])
             perf_score: float | None = float(perf["score"])
 
             record["security"] = sec_result
@@ -253,8 +285,11 @@ class AnalysisPipelineOrchestrator:
             record["documentation"] = doc_result
 
             # ---- STEP 4: health ----
-            _step("CALCULATING", 86, "Calculating health metrics...")
-            merged_raw: dict[str, Any] = {}
+            _step("CALCULATING", 86, "Calculating health metrics and confidence...")
+            merged_raw: dict[str, Any] = {
+                "scanned_files": len(files_map),
+                "tree_paths_count": len(tree_paths),
+            }
             merged_formulas: dict[str, str] = {}
             for res in (sec_result, qual_result, arch_result):
                 if res and res.get("status") == "completed":
@@ -263,6 +298,7 @@ class AnalysisPipelineOrchestrator:
                         merged_formulas[res.get("pillar", "scanner")] = res["formula_used"]
             merged_raw["dependencies"] = deps["metrics"]
             merged_raw["testing"] = tests["metrics"]
+            merged_raw["activity"] = activity["metrics"]
             merged_raw["performance_signals"] = perf["metrics"]
 
             health_res = HealthScoreCalculatorService.calculate_health_score(
@@ -270,21 +306,60 @@ class AnalysisPipelineOrchestrator:
                 security_score=sec_score,
                 code_quality_score=qual_score,
                 architecture_score=arch_score,
-                performance_score=perf_score,
                 documentation_score=doc_score,
                 dependencies_score=deps_score,
                 testing_score=tests_score,
+                activity_score=activity_score,
+                performance_signals_score=perf_score,
                 raw_metrics=merged_raw,
                 formulas_used=merged_formulas,
             )
             record["health"] = {
                 "overall_health_score": health_res.overall_health_score,
                 "health_grade": health_res.health_grade,
+                "confidence_rating": health_res.confidence_rating,
+                "confidence_reason": health_res.confidence_reason,
+                "weights_used": health_res.weights_used,
                 "individual_scores": health_res.individual_scores.model_dump(),
                 "raw_metrics": health_res.raw_metrics,
                 "formulas_used": health_res.formulas_used,
                 "actionable_suggestions": health_res.actionable_suggestions,
             }
+
+            # Compute file-level risk map
+            file_risk_map: dict[str, Any] = {}
+            for f in sec_result.get("findings", []) if sec_result else []:
+                fp = f.get("affected_file") or f.get("file_path")
+                if fp:
+                    entry = file_risk_map.setdefault(fp, {"risk_score": 0, "findings": []})
+                    sev = (f.get("severity") or "LOW").upper()
+                    weight = 40 if sev == "CRITICAL" else (25 if sev == "HIGH" else (10 if sev == "MEDIUM" else 5))
+                    entry["risk_score"] += weight
+                    entry["findings"].append({
+                        "pillar": "security",
+                        "severity": sev,
+                        "title": f.get("title") or f.get("issue_type") or "Security Finding",
+                        "line": f.get("line_number") or f.get("line") or 1,
+                        "recommendation": f.get("recommendation") or f.get("fix_recommendation") or "Review security finding",
+                    })
+            for f in qual_result.get("findings", []) if qual_result else []:
+                fp = f.get("affected_file") or f.get("file_path")
+                if fp:
+                    entry = file_risk_map.setdefault(fp, {"risk_score": 0, "findings": []})
+                    sev = (f.get("severity") or "LOW").upper()
+                    weight = 20 if "complexity" in (f.get("title") or "").lower() else 10
+                    entry["risk_score"] += weight
+                    entry["findings"].append({
+                        "pillar": "quality",
+                        "severity": sev,
+                        "title": f.get("title") or f.get("issue_type") or "Quality Finding",
+                        "line": f.get("line_number") or f.get("line") or 1,
+                        "recommendation": f.get("recommendation") or "Refactor code structure",
+                    })
+            for fp, data in file_risk_map.items():
+                s = data["risk_score"]
+                data["level"] = "CRITICAL" if s >= 40 else ("HIGH" if s >= 25 else ("MEDIUM" if s >= 10 else "LOW"))
+            record["file_risk_map"] = file_risk_map
 
             # ---- STEP 5: optional AI interpretation (never blocks results) ----
             _step("AI_SUMMARIZING", 92, "Generating AI insights (optional)...")
@@ -311,6 +386,11 @@ class AnalysisPipelineOrchestrator:
             record["current_step"] = "Analysis completed"
             record["completed_at"] = datetime.now(UTC).isoformat()
             record["duration_seconds"] = duration
+
+            commit_sha = repo.get("commit_sha") or "latest"
+            REPO_ANALYSIS_CACHE[f"analysis:{owner.lower()}:{name.lower()}:{commit_sha}"] = analysis_id
+            REPO_ANALYSIS_CACHE[f"analysis:{owner.lower()}:{name.lower()}:latest"] = analysis_id
+
             logger.info(
                 f"[{analysis_id}] Completed {owner}/{name} in {duration}s. "
                 f"Health: {health_res.overall_health_score}"

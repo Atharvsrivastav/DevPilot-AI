@@ -9,15 +9,20 @@ class IndividualPillarScores(BaseModel):
     code_quality_score: Optional[float] = Field(None, description="Code quality health score (0.0 to 100.0 or None if Not Analyzed)")
     architecture_score: Optional[float] = Field(None, description="Architecture health score (0.0 to 100.0 or None if Not Analyzed)")
     performance_score: Optional[float] = Field(None, description="Performance health score (0.0 to 100.0 or None if Not Analyzed)")
+    performance_signals_score: Optional[float] = Field(None, description="Static performance signals score (0.0 to 100.0)")
     documentation_score: Optional[float] = Field(None, description="Documentation health score (0.0 to 100.0 or None if Not Analyzed)")
     dependencies_score: Optional[float] = Field(None, description="Dependency health score (0.0 to 100.0 or None if Not Analyzed)")
     testing_score: Optional[float] = Field(None, description="Testing coverage health score (0.0 to 100.0 or None if Not Analyzed)")
+    activity_score: Optional[float] = Field(None, description="Repository activity and maintenance score (0.0 to 100.0 or None if Not Analyzed)")
 
 
 class RepositoryHealthScoreReport(BaseModel):
     repository_url: str
     overall_health_score: Optional[float] = Field(None, description="Weighted composite overall score (0.0 to 100.0 or None if Not Analyzed)")
     health_grade: str = Field(..., description="Grade classification: A+, A, B, C, D, F, or 'Not Analyzed'")
+    confidence_rating: str = Field("Medium", description="Confidence classification: High, Medium, Low, or Insufficient evidence")
+    confidence_reason: str = Field("", description="Justification for the confidence rating based on available evidence")
+    weights_used: dict[str, float] = Field(default_factory=dict, description="Pillar weights applied to calculate overall score")
     individual_scores: IndividualPillarScores
     raw_metrics: dict[str, Any] = Field(default_factory=dict, description="Raw evidence metrics used for calculations")
     formulas_used: dict[str, str] = Field(default_factory=dict, description="Transparent formulas used for score derivations")

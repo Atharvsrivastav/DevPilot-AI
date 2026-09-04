@@ -8,13 +8,18 @@ import {
   ScoreWidget,
   PillarChartWidget,
   RecentAnalysisWidget,
+  DevelopmentActivityWidget,
+  CompactEngineeringSnapshot,
+  PriorityFixesWidget,
+  HealthTimelineWidget,
+  WhatChangedWidget,
 } from "@/components/DashboardWidgets";
 import { AnalyzeModal, type AnalysisRecord } from "@/components/AnalyzeModal";
 import { AnalysisDetailTabs } from "@/components/AnalysisDetailTabs";
 import { LoadingSkeleton, ErrorBlock, EmptyBlock } from "@/components/StateBlocks";
-import { Sparkles, RefreshCw, Plus, Search } from "lucide-react";
+import { Sparkles, RefreshCw, Plus, Search, Printer } from "lucide-react";
 import { apiFetch, ApiError, parseRepoInput, repoSearch } from "@/lib/api";
-import { useRepo, repoKey, repoQuery, withRepo } from "@/lib/useRepo";
+import { useRepo, repoKey, repoQuery, withRepo, saveRepositoryState } from "@/lib/useRepo";
 
 type FullRecord = AnalysisRecord & {
   repository?: {
@@ -30,15 +35,30 @@ type FullRecord = AnalysisRecord & {
     description?: string | null;
     license?: string | null;
     language?: string | null;
+    recent_commits?: Array<{
+      sha: string;
+      message: string;
+      author_name: string;
+      date: string;
+    }>;
+    top_contributors?: Array<{
+      login: string;
+      contributions: number;
+      avatar_url?: string;
+    }>;
   };
   health?: {
     overall_health_score?: number | null;
     health_grade?: string;
+    confidence_rating?: string;
+    confidence_reason?: string;
+    weights_used?: Record<string, number>;
     individual_scores?: Record<string, number | null>;
     formulas_used?: Record<string, string>;
   } | null;
   dependencies?: { score?: number } | null;
   testing?: { score?: number } | null;
+  activity?: { score?: number } | null;
   performance_signals?: { score?: number } | null;
 };
 
@@ -51,6 +71,7 @@ function DashboardInner() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [inputError, setInputError] = useState("");
+  const [selectedTab, setSelectedTab] = useState<string>("security");
 
   const key = repo ? repoKey(repo) : "";
 
@@ -67,7 +88,20 @@ function DashboardInner() {
     setLoading(true);
     apiFetch<FullRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
       .then((data) => {
-        if (!cancelled) setRecord(data);
+        if (!cancelled) {
+          setRecord(data);
+          if (data.repository?.owner && data.repository?.name) {
+            saveRepositoryState({
+              owner: data.repository.owner,
+              repo: data.repository.name,
+              url: data.repository.url || `https://github.com/${data.repository.owner}/${data.repository.name}`,
+              defaultBranch: data.repository.default_branch || data.repository.requested_branch || "main",
+              repositoryId: `${data.repository.owner}/${data.repository.name}`,
+              commitSha: data.repository.commit_sha || null,
+              analysisId: data.analysis_id,
+            });
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -94,7 +128,8 @@ function DashboardInner() {
       return;
     }
     setInputError("");
-    router.push(`/dashboard${repoSearch(parsed.owner, parsed.name)}`);
+    setUrlInput(parsed.url);
+    setIsModalOpen(true);
   };
 
   const refresh = () => {
@@ -102,7 +137,20 @@ function DashboardInner() {
     setLoading(true);
     setError(null);
     apiFetch<FullRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
-      .then(setRecord)
+      .then((data) => {
+        setRecord(data);
+        if (data.repository?.owner && data.repository?.name) {
+          saveRepositoryState({
+            owner: data.repository.owner,
+            repo: data.repository.name,
+            url: data.repository.url || `https://github.com/${data.repository.owner}/${data.repository.name}`,
+            defaultBranch: data.repository.default_branch || data.repository.requested_branch || "main",
+            repositoryId: `${data.repository.owner}/${data.repository.name}`,
+            commitSha: data.repository.commit_sha || null,
+            analysisId: data.analysis_id,
+          });
+        }
+      })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 404) setRecord(null);
         else setError(e instanceof ApiError ? e.message : "Failed to load analysis.");
@@ -114,9 +162,26 @@ function DashboardInner() {
     setRecord(rec as FullRecord);
     setIsModalOpen(false);
     if (rec.repository?.owner && rec.repository?.name) {
+      saveRepositoryState({
+        owner: rec.repository.owner,
+        repo: rec.repository.name,
+        url: (rec.repository as any).url || `https://github.com/${rec.repository.owner}/${rec.repository.name}`,
+        defaultBranch: (rec.repository as any).default_branch || "main",
+        repositoryId: `${rec.repository.owner}/${rec.repository.name}`,
+        commitSha: (rec.repository as any).commit_sha || null,
+        analysisId: rec.analysis_id,
+      });
       router.push(
         `/dashboard${repoSearch(rec.repository.owner, rec.repository.name)}`
       );
+    }
+  };
+
+  const handleScoreClick = (tabId: string) => {
+    setSelectedTab(tabId);
+    const el = document.getElementById("analysis-detail-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
     }
   };
 
@@ -126,13 +191,14 @@ function DashboardInner() {
   const formulas = health?.formulas_used || {};
 
   const pillars = [
-    { name: "Security", score: ind.security_score ?? null, color: "bg-emerald-400" },
-    { name: "Code Quality", score: ind.code_quality_score ?? null, color: "bg-cyan-400" },
-    { name: "Architecture", score: ind.architecture_score ?? null, color: "bg-indigo-400" },
-    { name: "Performance Signals", score: ind.performance_score ?? null, color: "bg-amber-400" },
-    { name: "Documentation", score: ind.documentation_score ?? null, color: "bg-purple-400" },
-    { name: "Dependencies", score: ind.dependencies_score ?? null, color: "bg-teal-400" },
-    { name: "Testing", score: ind.testing_score ?? null, color: "bg-rose-400" },
+    { id: "security", name: "Security", score: ind.security_score ?? null, weight: "20%" },
+    { id: "quality", name: "Code Quality", score: ind.code_quality_score ?? null, weight: "20%" },
+    { id: "architecture", name: "Architecture", score: ind.architecture_score ?? null, weight: "15%" },
+    { id: "supply", name: "Testing", score: ind.testing_score ?? null, weight: "15%" },
+    { id: "supply", name: "Dependencies", score: ind.dependencies_score ?? null, weight: "10%" },
+    { id: "supply", name: "Documentation", score: ind.documentation_score ?? null, weight: "10%" },
+    { id: "activity", name: "Activity", score: ind.activity_score ?? null, weight: "10%" },
+    { id: "supply", name: "Performance Signals", score: ind.performance_score ?? null, weight: "Diagnostic" },
   ];
 
   return (
@@ -164,6 +230,15 @@ function DashboardInner() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.print()}
+            disabled={!record}
+            className="px-3.5 py-2.5 text-xs font-semibold rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 transition-all inline-flex items-center gap-1.5 disabled:opacity-40"
+            title="Export clean PDF report of current analysis"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
           <button
             onClick={refresh}
             disabled={!repo || loading}
@@ -231,66 +306,134 @@ function DashboardInner() {
         />
       ) : (
         <>
+          <CompactEngineeringSnapshot repo={repo} record={record} />
+
           <RepositoryCard
             name={r?.name || repo.repo}
             owner={r?.owner || repo.owner}
             url={r?.url || `https://github.com/${repo.owner}/${repo.repo}`}
             defaultBranch={r?.requested_branch || r?.default_branch || "main"}
+            commitSha={r?.commit_sha}
             framework={[
               r?.language,
               r?.license,
-              r?.commit_sha ? `commit ${r.commit_sha}` : null,
             ]
               .filter(Boolean)
               .join(" · ")}
             isPrivate={false}
+            stars={r?.stars}
+            forks={r?.forks}
+            openIssues={r?.open_issues}
+            description={r?.description}
           />
 
-          {(r?.stars != null || r?.forks != null || r?.open_issues != null) && (
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs font-mono text-slate-400">
-              {r?.stars != null && <span>★ {r.stars} stars</span>}
-              {r?.forks != null && <span>⑂ {r.forks} forks</span>}
-              {r?.open_issues != null && <span>◉ {r.open_issues} open issues</span>}
+          {health?.confidence_rating && (
+            <div className="flex flex-wrap items-center gap-2.5 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+              <span className="text-slate-400 font-mono font-semibold">Evidence Confidence:</span>
+              <span className={`px-2.5 py-0.5 rounded-full font-mono text-[11px] font-semibold border ${
+                health.confidence_rating === "High"
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  : health.confidence_rating === "Medium"
+                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                    : health.confidence_rating === "Low"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                      : "bg-slate-500/10 text-slate-400 border-slate-500/20"
+              }`}>
+                {health.confidence_rating}
+              </span>
+              {health.confidence_reason && (
+                <span className="text-slate-400 text-xs">
+                  — {health.confidence_reason}
+                </span>
+              )}
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <ScoreWidget
               title="Overall Health"
               score={health?.overall_health_score ?? null}
               grade={health?.health_grade || "—"}
-              icon="health"
+              confidence={health?.confidence_rating}
               formula={formulas.overall_health_score}
+              weight="100%"
             />
             <ScoreWidget
               title="Security"
               score={ind.security_score ?? null}
               grade={ind.security_score != null ? "Measured" : "—"}
-              icon="security"
+              confidence={health?.confidence_rating}
               formula={formulas.security}
-            />
-            <ScoreWidget
-              title="Architecture"
-              score={ind.architecture_score ?? null}
-              grade={ind.architecture_score != null ? "Measured" : "—"}
-              icon="health"
-              formula={formulas.architecture}
+              weight="20%"
+              active={selectedTab === "security"}
+              onClick={() => handleScoreClick("security")}
             />
             <ScoreWidget
               title="Code Quality"
               score={ind.code_quality_score ?? null}
               grade={ind.code_quality_score != null ? "Measured" : "—"}
-              icon="health"
+              confidence={health?.confidence_rating}
               formula={formulas.quality}
+              weight="20%"
+              active={selectedTab === "quality"}
+              onClick={() => handleScoreClick("quality")}
+            />
+            <ScoreWidget
+              title="Architecture"
+              score={ind.architecture_score ?? null}
+              grade={ind.architecture_score != null ? "Measured" : "—"}
+              confidence={health?.confidence_rating}
+              formula={formulas.architecture}
+              weight="15%"
+              active={selectedTab === "architecture"}
+              onClick={() => handleScoreClick("architecture")}
             />
           </div>
 
+          <PriorityFixesWidget
+            record={record}
+            onInspectFile={(file) => {
+              handleScoreClick("quality");
+            }}
+          />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <PillarChartWidget pillars={pillars} />
-            <RecentAnalysisWidget repo={repo} />
+            <WhatChangedWidget repo={repo} currentRecord={record} />
+            <HealthTimelineWidget
+              repo={repo}
+              currentAnalysisId={record?.analysis_id}
+              onSelectAnalysis={(id) => {
+                setLoading(true);
+                apiFetch<FullRecord>(`/api/v1/analysis/${id}`)
+                  .then((d) => setRecord(d))
+                  .finally(() => setLoading(false));
+              }}
+            />
           </div>
 
-          <AnalysisDetailTabs record={record} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <PillarChartWidget
+                pillars={pillars}
+                onSelectPillar={(tabId) => handleScoreClick(tabId)}
+              />
+            </div>
+            <div className="lg:col-span-1">
+              <DevelopmentActivityWidget
+                recentCommits={r?.recent_commits}
+                topContributors={r?.top_contributors}
+              />
+            </div>
+            <div className="lg:col-span-1">
+              <RecentAnalysisWidget repo={repo} />
+            </div>
+          </div>
+
+          <AnalysisDetailTabs
+            record={record}
+            selectedTab={selectedTab}
+            onTabChange={setSelectedTab}
+          />
         </>
       )}
 
