@@ -38,3 +38,4 @@ htmlcov/
 *.log
 docker-data/
 postgres_data/
+*.tsbuildinfo
