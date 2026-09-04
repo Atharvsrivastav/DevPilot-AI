@@ -5,7 +5,8 @@ import { SidebarLayout } from "@/components/SidebarLayout";
 
 export const metadata: Metadata = {
   title: "DevPilot AI - Automated Repository Intelligence Platform",
-  description: "Enterprise-grade AI platform for GitHub repository code quality, security, architecture, and maintainability analysis.",
+  description:
+    "Enterprise-grade AI platform for GitHub repository code quality, security, architecture, and maintainability analysis.",
 };
 
 export default function RootLayout({
@@ -14,8 +15,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased bg-[#030712] text-slate-50 min-h-screen">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="antialiased min-h-screen">
+        <a href="#main-content" className="skip-link">
+          Skip to content
+        </a>
         <ThemeProvider>
           <SidebarLayout>{children}</SidebarLayout>
         </ThemeProvider>

@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
 import {
   Cpu,
   LayoutDashboard,
@@ -22,11 +21,10 @@ import {
   ChevronRight,
   Menu,
   X,
-  Plus,
   GitBranch,
 } from "lucide-react";
 import { useTheme } from "./ThemeContext";
-import { CommandPalette } from "./CommandPalette";
+import { CommandPalette, OPEN_PALETTE_EVENT } from "./CommandPalette";
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -39,7 +37,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/analysis", label: "Analysis Report", icon: FileText },
     { href: "/repository", label: "Repo Inspector", icon: FolderGit2 },
-    { href: "/security", label: "Security Scanner", icon: ShieldCheck, badge: "3" },
+    { href: "/security", label: "Security Scanner", icon: ShieldCheck },
     { href: "/quality", label: "Code Quality", icon: Cpu },
     { href: "/architecture", label: "Architecture Graph", icon: GitPullRequest },
     { href: "/chat", label: "AI Chat (RAG)", icon: MessageSquare },
@@ -47,22 +45,47 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     { href: "/settings", label: "Settings", icon: Settings },
   ];
 
+  // Lock body scroll + close on Escape when the mobile drawer is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
+
+  const openPalette = () => {
+    window.dispatchEvent(new CustomEvent(OPEN_PALETTE_EVENT));
+  };
+
+  const pageLabel =
+    pathname === "/" ? "Home" : pathname.split("/").filter(Boolean).join(" / ");
+
   return (
     <div className="min-h-screen bg-[#030712] text-slate-100 flex flex-col md:flex-row font-sans">
-      {/* Command Palette Modal */}
       <CommandPalette />
 
       {/* Sidebar for Desktop */}
       <aside
+        aria-label="Primary navigation"
         className={`hidden md:flex flex-col border-r border-white/10 bg-[#070c18]/90 backdrop-blur-xl sticky top-0 h-screen transition-all duration-300 z-40 ${
           collapsed ? "w-20" : "w-64"
         }`}
       >
         {/* Brand Header */}
         <div className="h-16 px-4 flex items-center justify-between border-b border-white/10">
-          <Link href="/" className="flex items-center gap-2.5 font-black text-sm tracking-tight text-white">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 font-black text-sm tracking-tight text-white rounded-lg"
+          >
             <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center shadow-inner flex-shrink-0">
-              <Cpu className="w-4.5 h-4.5 text-cyan-400" />
+              <Cpu className="w-5 h-5 text-cyan-400" />
             </div>
             {!collapsed && (
               <span className="linear-gradient-text text-base">
@@ -73,10 +96,15 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
           <button
             onClick={() => setCollapsed(!collapsed)}
-            aria-label="Toggle sidebar"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
             className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            {collapsed ? (
+              <ChevronRight className="w-4 h-4" />
+            ) : (
+              <ChevronLeft className="w-4 h-4" />
+            )}
           </button>
         </div>
 
@@ -86,9 +114,13 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs font-mono text-slate-300">
               <div className="flex items-center gap-2 overflow-hidden">
                 <GitBranch className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                <span className="truncate font-semibold text-white">DevPilot-AI</span>
+                <span className="truncate font-semibold text-white">
+                  DevPilot-AI
+                </span>
               </div>
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">main</span>
+              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                main
+              </span>
             </div>
           </div>
         )}
@@ -102,21 +134,22 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
+                aria-current={isActive ? "page" : undefined}
+                title={collapsed ? item.label : undefined}
+                className={`flex items-center px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors group ${
                   isActive
                     ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-lg shadow-cyan-500/10"
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                    : "text-slate-400 hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-cyan-400" : "group-hover:text-slate-200"}`} />
+                  <Icon
+                    className={`w-4 h-4 flex-shrink-0 ${
+                      isActive ? "text-cyan-400" : "group-hover:text-slate-200"
+                    }`}
+                  />
                   {!collapsed && <span>{item.label}</span>}
                 </div>
-                {!collapsed && item.badge && (
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold">
-                    {item.badge}
-                  </span>
-                )}
               </Link>
             );
           })}
@@ -124,20 +157,30 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
         {/* Footer Actions */}
         <div className="p-3 border-t border-white/10 space-y-2">
-          {/* Theme Switcher Button */}
           <button
             onClick={toggleTheme}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            title={collapsed ? "Toggle theme" : undefined}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
           >
-            {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />}
-            {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-indigo-400" />
+            )}
+            {!collapsed && (
+              <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+            )}
           </button>
         </div>
       </aside>
 
       {/* Mobile Header Bar */}
       <div className="md:hidden sticky top-0 z-40 h-16 border-b border-white/10 bg-[#070c18]/90 backdrop-blur-md px-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 font-black text-sm text-white">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-black text-sm text-white rounded-lg"
+        >
           <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
             <Cpu className="w-4 h-4 text-cyan-400" />
           </div>
@@ -145,7 +188,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         </Link>
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-xl bg-white/5 text-slate-300 hover:text-white"
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
+          aria-expanded={mobileOpen}
+          className="p-2 rounded-xl bg-white/5 text-slate-300 hover:text-white border border-white/10"
         >
           {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
@@ -153,59 +198,73 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Navigation Drawer */}
       {mobileOpen && (
-        <div className="md:hidden border-b border-white/10 bg-[#070c18] px-4 py-3 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${
-                  isActive
-                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                    : "text-slate-300 hover:bg-white/5"
-                }`}
-              >
-                <Icon className="w-4 h-4 text-cyan-400" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+        <div className="md:hidden fixed inset-0 z-40">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative border-b border-white/10 bg-[#070c18] px-4 py-3 space-y-1 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${
+                    isActive
+                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                      : "text-slate-300 hover:bg-white/5 border border-transparent"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 text-cyan-400" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* Main Content Body */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Header Bar */}
         <header className="h-16 border-b border-white/10 px-4 sm:px-6 flex items-center justify-between bg-[#030712]/80 backdrop-blur-md sticky top-0 z-30">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">DevPilot</span>
-            <span className="text-slate-600">/</span>
-            <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-              {pathname === "/" ? "Home" : pathname.replace("/", "")}
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-3 min-w-0"
+          >
+            <span className="text-xs font-mono text-slate-400 uppercase tracking-wider">
+              DevPilot
             </span>
-          </div>
+            <span className="text-slate-600" aria-hidden="true">
+              /
+            </span>
+            <span className="text-xs font-bold text-white uppercase tracking-wider font-mono truncate">
+              {pageLabel}
+            </span>
+          </nav>
 
-          {/* Quick Search & Command Palette Trigger */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                const event = new KeyboardEvent("keydown", { key: "k", metaKey: true });
-                window.dispatchEvent(event);
-              }}
-              className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white text-xs font-mono flex items-center gap-2 transition-all"
+              onClick={openPalette}
+              aria-label="Open command palette (Control K)"
+              className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white text-xs font-mono flex items-center gap-2 transition-colors"
             >
               <Search className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Search commands...</span>
-              <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-sans">⌘K</kbd>
+              <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-300 font-sans">
+                ⌘K
+              </kbd>
             </button>
           </div>
         </header>
 
-        {/* Page Content Viewport */}
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">
+          {children}
+        </main>
       </div>
     </div>
   );

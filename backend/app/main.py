@@ -25,13 +25,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS Middleware Setup
+# CORS: explicit origins. Wildcard + credentials is rejected by browsers,
+# so production must list real frontend origins via CORS_EXTRA_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Include Routers
@@ -47,13 +48,23 @@ app.include_router(health_score.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 
 
-@app.get("/", tags=["Health Check"])
-@app.get("/health", tags=["Health Check"])
-async def health_check():
-    """Health check endpoint for Docker, Render, & Kubernetes liveness probes."""
+def _health_payload() -> dict:
+    """Shared liveness payload for Docker, Render & Kubernetes probes."""
     return {
         "status": "healthy",
         "message": "DevPilot AI Backend API is Live",
         "environment": settings.ENVIRONMENT,
-        "version": "0.1.0"
+        "version": "0.1.0",
     }
+
+
+@app.get("/", tags=["Health Check"])
+async def root() -> dict:
+    """Root endpoint — also serves as a liveness probe."""
+    return _health_payload()
+
+
+@app.get("/health", tags=["Health Check"])
+async def health_check() -> dict:
+    """Dedicated liveness probe endpoint."""
+    return _health_payload()

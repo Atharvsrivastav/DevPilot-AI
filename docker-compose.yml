@@ -32,9 +32,10 @@ services:
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-devpilot}:${POSTGRES_PASSWORD:-devpilot_password}@postgres:5432/${POSTGRES_DB:-devpilot_db}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-devpilot}:${POSTGRES_PASSWORD:-devpilot_password}@postgres:5432/${POSTGRES_DB:-devpilot_db}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
       - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-}
     depends_on:
       postgres:

@@ -51,7 +51,7 @@ export default function SettingsPage() {
         {/* API Credentials Card */}
         <div className="glass-panel p-6 rounded-3xl space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Key className="w-4.5 h-4.5 text-cyan-400" />
+            <Key className="w-5 h-5 text-cyan-400" />
             API & Integration Keys
           </h3>
 
@@ -91,7 +91,7 @@ export default function SettingsPage() {
         {/* Theme Preferences */}
         <div className="glass-panel p-6 rounded-3xl space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Shield className="w-4.5 h-4.5 text-indigo-400" />
+            <Shield className="w-5 h-5 text-indigo-400" />
             Appearance & Theme
           </h3>
 

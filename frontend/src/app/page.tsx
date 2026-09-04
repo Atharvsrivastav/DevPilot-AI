@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { parseRepoInput } from "@/lib/api";
 import {
   Sparkles,
   ArrowRight,
@@ -20,13 +21,22 @@ import {
 
 export default function HomePage() {
   const [url, setUrl] = useState("");
+  const [inputError, setInputError] = useState("");
   const router = useRouter();
 
   const handleAnalyze = (e: React.FormEvent) => {
     e.preventDefault();
-    if (url.trim()) {
-      router.push("/dashboard");
+    const parsed = parseRepoInput(url);
+    if (!parsed) {
+      setInputError(
+        "Enter a valid GitHub URL (github.com/owner/repo) or owner/repo."
+      );
+      return;
     }
+    setInputError("");
+    router.push(
+      `/dashboard?owner=${encodeURIComponent(parsed.owner)}&repo=${encodeURIComponent(parsed.name)}`
+    );
   };
 
   return (
@@ -52,6 +62,7 @@ export default function HomePage() {
         </p>
 
         {/* Live URL Input Bar */}
+        <div className="w-full max-w-xl space-y-2">
         <form onSubmit={handleAnalyze} className="w-full max-w-xl flex items-center gap-2 p-1.5 rounded-2xl bg-slate-950/80 border border-white/15 shadow-2xl glass-panel">
           <div className="flex items-center gap-2 px-3 text-slate-400">
             <Github className="w-4 h-4 text-cyan-400" />
@@ -61,6 +72,9 @@ export default function HomePage() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Paste GitHub Repository URL... (e.g. github.com/fastapi/fastapi)"
+            aria-label="GitHub repository URL"
+            aria-invalid={Boolean(inputError)}
+            aria-describedby={inputError ? "repo-url-error" : undefined}
             className="flex-1 bg-transparent text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none font-mono"
           />
           <button
@@ -71,6 +85,12 @@ export default function HomePage() {
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </form>
+        {inputError && (
+          <p id="repo-url-error" role="alert" className="text-xs text-rose-400 font-mono px-2">
+            {inputError}
+          </p>
+        )}
+        </div>
       </motion.div>
 
       {/* Feature Pillar Cards */}

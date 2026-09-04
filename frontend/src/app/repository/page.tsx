@@ -112,7 +112,7 @@ export default function RepositoryPage() {
         {/* File Tree Component */}
         <div className="lg:col-span-2 glass-panel p-6 rounded-3xl space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <FolderGit2 className="w-4.5 h-4.5 text-cyan-400" />
+            <FolderGit2 className="w-5 h-5 text-cyan-400" />
             Repository File & Folder Tree ({treePaths.length} items)
           </h3>
 

@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "./ThemeContext";
 
+export const OPEN_PALETTE_EVENT = "devpilot:open-palette";
+
 interface CommandItem {
   id: string;
   title: string;
@@ -38,10 +40,10 @@ export function CommandPalette() {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
 
-  // Cmd+K / Ctrl+K Event Listener
+  // Cmd+K / Ctrl+K + programmatic open from header button
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsOpen((prev) => !prev);
       }
@@ -49,8 +51,13 @@ export function CommandPalette() {
         setIsOpen(false);
       }
     };
+    const handleOpenEvent = () => setIsOpen(true);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener(OPEN_PALETTE_EVENT, handleOpenEvent);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener(OPEN_PALETTE_EVENT, handleOpenEvent);
+    };
   }, []);
 
   const navigate = (path: string) => {
@@ -108,12 +115,19 @@ export function CommandPalette() {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-slate-950/80 backdrop-blur-md">
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-slate-950/80 backdrop-blur-md"
+          onClick={() => setIsOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command palette"
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
+            onClick={(e) => e.stopPropagation()}
             className="w-full max-w-xl rounded-2xl bg-[#0b0f19] border border-white/10 shadow-2xl overflow-hidden glass-panel"
           >
             {/* Search Input Bar */}
@@ -130,6 +144,7 @@ export function CommandPalette() {
               />
               <button
                 onClick={() => setIsOpen(false)}
+                aria-label="Close command palette"
                 className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10"
               >
                 <X className="w-4 h-4" />
@@ -147,14 +162,16 @@ export function CommandPalette() {
                   const IconComp = cmd.icon;
                   const isSelected = idx === selectedIndex;
                   return (
-                    <div
+                    <button
                       key={cmd.id}
+                      type="button"
                       onClick={cmd.action}
                       onMouseEnter={() => setSelectedIndex(idx)}
-                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer text-xs font-semibold transition-all ${
+                      onFocus={() => setSelectedIndex(idx)}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer text-xs font-semibold transition-colors text-left ${
                         isSelected
                           ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                          : "text-slate-300 hover:bg-white/5"
+                          : "text-slate-300 hover:bg-white/5 border border-transparent"
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -167,7 +184,7 @@ export function CommandPalette() {
                         </span>
                         {isSelected && <ArrowRight className="w-3.5 h-3.5 text-cyan-400" />}
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
