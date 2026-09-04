@@ -1,4 +1,5 @@
 import "./globals.css";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/ThemeContext";
 import { SidebarLayout } from "@/components/SidebarLayout";
@@ -21,7 +22,9 @@ export default function RootLayout({
           Skip to content
         </a>
         <ThemeProvider>
-          <SidebarLayout>{children}</SidebarLayout>
+          <Suspense fallback={null}>
+            <SidebarLayout>{children}</SidebarLayout>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>

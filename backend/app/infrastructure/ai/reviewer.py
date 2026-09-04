@@ -2,18 +2,14 @@
 
 import json
 import logging
-import httpx
 from typing import Any
+
+import httpx
 
 from app.core.config import settings
 from app.domain.models.ai_reviewer import AICodeReviewReport
 
 logger = logging.getLogger("devpilot.ai_reviewer")
-
-NVIDIA_PREFERRED_KEYS = [
-    "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",
-    "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",
-]
 
 NVIDIA_PREFERRED_MODELS = [
     "z-ai/glm-5.2",
@@ -52,18 +48,18 @@ class AICodeReviewerService:
         # Deterministic human-readable explanation generator formatting exact static JSON results
         sec_findings = json_evidence.get("security", {}).get("findings", [])
         qual_findings = json_evidence.get("quality", {}).get("findings", [])
-        arch_pattern = json_evidence.get("architecture", {}).get("detected_pattern", "Clean Architecture")
+        arch_pattern = json_evidence.get("architecture", {}).get("detected_pattern") or "Undetermined"
 
         improvements = []
         if sec_findings:
             improvements.append(f"Security: Address {len(sec_findings)} detected security vulnerability findings.")
         else:
-            improvements.append("Security: No critical vulnerabilities detected by static security scanners.")
+            improvements.append("Security: No issues detected by current checks.")
 
         if qual_findings:
             improvements.append(f"Code Quality: Refactor {len(qual_findings)} flagged quality smells and complexity items.")
         else:
-            improvements.append("Code Quality: Source code meets baseline cyclomatic complexity thresholds.")
+            improvements.append("Code Quality: No quality findings reported by current checks.")
 
         improvements.append(f"Architecture: Structure follows verified {arch_pattern} layout.")
 
@@ -80,13 +76,7 @@ class AICodeReviewerService:
                 "suggested_code": q.get("recommendation", "Refactor into smaller modular functions."),
             })
 
-        if not refactor_targets:
-            refactor_targets.append({
-                "file_path": "backend/app/main.py",
-                "target_symbol": "app",
-                "reason": "Ensure environment variables are loaded securely from .env",
-                "suggested_code": "SECRET_KEY: SecretStr = Field(..., min_length=32)",
-            })
+        # No fabricated targets: empty means no evidence-backed suggestions exist.
 
         return AICodeReviewReport(
             repository_url=repo_url,
@@ -105,10 +95,9 @@ class AICodeReviewerService:
     @classmethod
     async def _query_nvidia_nim(cls, static_analysis_json: dict[str, Any]) -> AICodeReviewReport | None:
         """Call NVIDIA NIM API with preferred model fallback order."""
-        keys = [settings.NVIDIA_API_KEY] if settings.NVIDIA_API_KEY else []
-        for k in NVIDIA_PREFERRED_KEYS:
-            if k not in keys:
-                keys.append(k)
+        if not settings.NVIDIA_API_KEY:
+            return None
+        keys = [settings.NVIDIA_API_KEY]
 
         prompt = (
             "You are DevPilot AI's Senior Staff Code Reviewer. Given the exact JSON results from static analyzers below, "

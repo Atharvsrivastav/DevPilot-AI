@@ -1,37 +1,107 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { GitPullRequest, Layers, CheckCircle2, ArrowRight, Database, Server, Code2 } from "lucide-react";
+import { GitPullRequest, Layers, Folder } from "lucide-react";
+import { apiFetch, ApiError } from "@/lib/api";
+import { useRepo, repoKey, repoQuery } from "@/lib/useRepo";
+import {
+  LoadingSkeleton,
+  ErrorBlock,
+  EmptyBlock,
+} from "@/components/StateBlocks";
 
-import { getApiBaseUrl } from "@/config/api";
+interface ArchitectureData {
+  status?: string;
+  detected_pattern?: string | null;
+  confidence_score?: number | null;
+  modularity_score?: number | null;
+  coupling_score?: number | null;
+  architecture_score?: number | null;
+  folder_graph?: string[];
+  mermaid_diagram?: string | null;
+  summary?: string | null;
+  error?: string | null;
+}
 
-export default function ArchitecturePage() {
-  const [archData, setArchData] = React.useState<any>(null);
+interface ArchitectureRecord {
+  status: string;
+  error_message?: string | null;
+  architecture?: ArchitectureData | null;
+}
 
-  React.useEffect(() => {
-    const fetchArchData = async () => {
-      try {
-        const baseUrl = getApiBaseUrl();
-        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
-          headers: { Authorization: "Bearer mock_jwt_token_demo" },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setArchData(data.architecture);
+const FOLDER_CAP = 30;
+
+function formatScore(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value} / 100`
+    : "—";
+}
+
+function ArchitectureInner() {
+  const repo = useRepo();
+  const [record, setRecord] = useState<ArchitectureRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const key = repo ? repoKey(repo) : "";
+
+  useEffect(() => {
+    if (!repo) {
+      setRecord(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRecord(null); // clear previous repo's data immediately
+    setError(null);
+    setLoading(true);
+    apiFetch<ArchitectureRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
+      .then((data) => {
+        if (!cancelled) setRecord(data);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          if (e instanceof ApiError && e.status === 404) {
+            setRecord(null); // never analyzed — empty state, not an error
+          } else {
+            setError(
+              e instanceof ApiError ? e.message : "Failed to load analysis."
+            );
+          }
         }
-      } catch (err) {
-        console.error("Error loading architecture data:", err);
-      }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-    fetchArchData();
-  }, []);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const patternName = archData?.detected_pattern || "Not Analyzed";
-  const confidence = archData?.confidence_score ?? "N/A";
-  const modularity = archData?.modularity_score ?? "N/A";
-  const coupling = archData?.coupling_score ?? "N/A";
-  const mermaidDiagram = archData?.mermaid_diagram || "graph TD\n    NoData['Run Repository Analysis to generate architecture diagram']";
+  const refresh = () => {
+    if (!repo) return;
+    setLoading(true);
+    setError(null);
+    apiFetch<ArchitectureRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
+      .then(setRecord)
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 404) setRecord(null);
+        else
+          setError(
+            e instanceof ApiError ? e.message : "Failed to load analysis."
+          );
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const arch = record?.architecture ?? null;
+  const patternName = arch?.detected_pattern || null;
+  const confidence = arch?.confidence_score;
+  const folders = Array.isArray(arch?.folder_graph) ? arch.folder_graph : [];
+  const visibleFolders = folders.slice(0, FOLDER_CAP);
+  const hiddenCount = folders.length - visibleFolders.length;
 
   return (
     <motion.div
@@ -51,74 +121,161 @@ export default function ArchitecturePage() {
             Software Architecture & Dependency Graph
           </h1>
           <p className="text-xs text-slate-400">
-            Detects Clean Architecture, Hexagonal (Ports & Adapters), MVC, or Microservices structural patterns.
+            {repo
+              ? `Live architecture results for ${repo.owner}/${repo.repo}: detected structural pattern, modularity, coupling, and directory layout.`
+              : "Detects Clean Architecture, Hexagonal (Ports & Adapters), MVC, or Microservices structural patterns."}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono px-3.5 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-            Pattern: {patternName} (Confidence: {confidence}%)
-          </span>
-        </div>
+        {patternName && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono px-3.5 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+              Pattern: {patternName}
+              {typeof confidence === "number" && Number.isFinite(confidence)
+                ? ` (Confidence: ${confidence}%)`
+                : ""}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Architecture Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Modularity Score</div>
-          <div className="text-3xl font-black text-indigo-400 font-mono">{modularity} {modularity !== "N/A" ? "/ 100" : ""}</div>
-          <div className="text-[11px] text-slate-500 font-mono">Component Isolation Rating</div>
+      {!repo ? (
+        <EmptyBlock
+          title="No repository selected"
+          hint="Add ?owner=<owner>&repo=<repo> to the URL, or pick a repository from the dashboard."
+        />
+      ) : loading && !record ? (
+        <div className="space-y-4">
+          <LoadingSkeleton lines={2} label="Loading architecture metrics" />
+          <LoadingSkeleton lines={4} label="Loading directory structure" />
         </div>
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Coupling Index</div>
-          <div className="text-3xl font-black text-emerald-400 font-mono">{coupling} {coupling !== "N/A" ? "/ 100" : ""}</div>
-          <div className="text-[11px] text-slate-500 font-mono">Layer Interdependence Index</div>
-        </div>
-        <div className="glass-panel p-5 rounded-2xl space-y-1">
-          <div className="text-xs font-semibold text-slate-400 uppercase">Architecture Rating</div>
-          <div className="text-3xl font-black text-cyan-400 font-mono">{archData?.architecture_score ?? "N/A"} {archData?.architecture_score ? "/ 100" : ""}</div>
-          <div className="text-[11px] text-slate-500 font-mono">Calculated Score</div>
-        </div>
-      </div>
+      ) : error ? (
+        <ErrorBlock message={error} onRetry={refresh} />
+      ) : !record ? (
+        <EmptyBlock
+          title={`'${repo.owner}/${repo.repo}' hasn't been analyzed yet`}
+          hint="Run an analysis to generate architecture results from live GitHub data."
+        />
+      ) : record.status === "FAILED" ? (
+        <ErrorBlock
+          message={record.error_message || "Analysis failed."}
+          onRetry={refresh}
+        />
+      ) : !arch ? (
+        <EmptyBlock
+          title="Architecture data unavailable"
+          hint="This analysis did not produce architecture results. Run a fresh analysis to generate them."
+        />
+      ) : (
+        <>
+          {/* Architecture Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="glass-panel p-5 rounded-md space-y-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase">
+                Modularity Score
+              </div>
+              <div className="text-3xl font-black text-indigo-400 font-mono">
+                {formatScore(arch.modularity_score)}
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Component Isolation Rating
+              </div>
+            </div>
+            <div className="glass-panel p-5 rounded-md space-y-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase">
+                Coupling Index
+              </div>
+              <div className="text-3xl font-black text-emerald-400 font-mono">
+                {formatScore(arch.coupling_score)}
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Layer Interdependence Index
+              </div>
+            </div>
+            <div className="glass-panel p-5 rounded-md space-y-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase">
+                Architecture Rating
+              </div>
+              <div className="text-3xl font-black text-cyan-400 font-mono">
+                {formatScore(arch.architecture_score)}
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Calculated Score
+              </div>
+            </div>
+          </div>
 
-      {/* Architecture Diagram Visualizer */}
-      <div className="glass-panel p-8 rounded-3xl space-y-6">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <Layers className="w-5 h-5 text-indigo-400" />
-          Detected Architecture Layer Isolation Map: {patternName}
-        </h3>
+          {arch.summary && (
+            <div className="glass-panel p-5 rounded-md">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {arch.summary}
+              </p>
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center font-mono">
-          <div className="p-5 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 space-y-2">
-            <Server className="w-6 h-6 mx-auto" />
-            <div className="text-xs font-bold uppercase">1. Presentation</div>
-            <div className="text-[11px] text-slate-300">FastAPI Controllers & Next.js Routes</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 space-y-2">
-            <GitPullRequest className="w-6 h-6 mx-auto" />
-            <div className="text-xs font-bold uppercase">2. Use Cases</div>
-            <div className="text-[11px] text-slate-300">Application Orchestrators</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 space-y-2">
-            <Code2 className="w-6 h-6 mx-auto" />
-            <div className="text-xs font-bold uppercase">3. Domain Models</div>
-            <div className="text-[11px] text-slate-300">Pure Entities & Interfaces</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 space-y-2">
-            <Database className="w-6 h-6 mx-auto" />
-            <div className="text-xs font-bold uppercase">4. Infrastructure</div>
-            <div className="text-[11px] text-slate-300">PostgreSQL + pgvector Engine</div>
-          </div>
-        </div>
-      </div>
+          {/* Detected Directory Structure */}
+          <div className="glass-panel p-8 rounded-lg space-y-6">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-indigo-400" />
+              Detected Directory Structure
+              {patternName ? `: ${patternName}` : ""}
+            </h3>
 
-      {/* Mermaid.js Diagram Source Box */}
-      <div className="glass-panel p-6 rounded-3xl space-y-3 font-mono text-xs">
-        <h4 className="font-bold text-white text-sm">Generated Mermaid.js Flowchart</h4>
-        <div className="p-4 rounded-2xl bg-slate-950 text-slate-300 border border-white/10 overflow-x-auto leading-relaxed">
-          <pre>{mermaidDiagram}</pre>
-        </div>
-      </div>
+            {visibleFolders.length === 0 ? (
+              <EmptyBlock
+                title="Directory structure unavailable"
+                hint="This analysis did not report a folder layout for the repository."
+              />
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 font-mono">
+                  {visibleFolders.map((folder) => (
+                    <div
+                      key={folder}
+                      className="p-3.5 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs flex items-center gap-2 overflow-hidden"
+                    >
+                      <Folder className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                      <span className="truncate">{folder}</span>
+                    </div>
+                  ))}
+                </div>
+                {hiddenCount > 0 && (
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    +{hiddenCount} more {hiddenCount === 1 ? "directory" : "directories"} not shown
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Mermaid.js Diagram Source Box */}
+          <div className="glass-panel p-6 rounded-lg space-y-3 font-mono text-xs">
+            <h4 className="font-bold text-white text-sm">
+              Generated Mermaid.js Flowchart
+            </h4>
+            {arch.mermaid_diagram ? (
+              <div className="p-4 rounded-md bg-slate-950 text-slate-300 border border-white/10 overflow-x-auto leading-relaxed">
+                <pre>{arch.mermaid_diagram}</pre>
+              </div>
+            ) : (
+              <EmptyBlock
+                title="Diagram unavailable"
+                hint="This analysis did not generate a Mermaid diagram for the repository."
+              />
+            )}
+          </div>
+        </>
+      )}
     </motion.div>
+  );
+}
+
+export default function ArchitecturePage() {
+  return (
+    <Suspense
+      fallback={<LoadingSkeleton lines={4} label="Loading architecture page" />}
+    >
+      <ArchitectureInner />
+    </Suspense>
   );
 }

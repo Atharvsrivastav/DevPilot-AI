@@ -128,7 +128,7 @@ export function CommandPalette() {
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xl rounded-2xl bg-[#0b0f19] border border-white/10 shadow-2xl overflow-hidden glass-panel"
+            className="w-full max-w-xl rounded-lg bg-[#0b0f19] border border-white/10 shadow-2xl overflow-hidden glass-panel"
           >
             {/* Search Input Bar */}
             <div className="flex items-center px-4 py-3 border-b border-white/10 gap-3">
@@ -170,7 +170,7 @@ export function CommandPalette() {
                       onFocus={() => setSelectedIndex(idx)}
                       className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer text-xs font-semibold transition-colors text-left ${
                         isSelected
-                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                          ? "bg-white/10 text-white border border-white/15"
                           : "text-slate-300 hover:bg-white/5 border border-transparent"
                       }`}
                     >

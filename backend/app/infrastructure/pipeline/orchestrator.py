@@ -1,74 +1,116 @@
-"""Async Analysis Pipeline Orchestrator executing live repository scanning, fault-tolerant scanner runs, and database persistence."""
+"""Async Analysis Pipeline Orchestrator: real GitHub fetch -> scanners -> health.
+
+Storage is keyed by analysis_id; every record carries user_id, owner, repo,
+branch, and commit SHA so analyses can never leak across repositories or users.
+GitHub failures FAIL the run with a specific error — never silent fallbacks.
+"""
 
 import asyncio
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
-from app.infrastructure.github.repository_service import GitHubRepositoryService
-from app.infrastructure.security.scanner import SecurityScannerService
-from app.infrastructure.quality.scanner import CodeQualityScannerService
 from app.infrastructure.architecture.analyzer import ArchitectureAnalyzerService
 from app.infrastructure.documentation.scanner import DocumentationScannerService
+from app.infrastructure.github.repository_service import (
+    GitHubError,
+    GitHubRepositoryService,
+    parse_github_url,
+)
 from app.infrastructure.health.calculator import HealthScoreCalculatorService
+from app.infrastructure.quality.scanner import CodeQualityScannerService
+from app.infrastructure.security.scanner import SecurityScannerService
+from app.infrastructure.signals.service import (
+    score_dependencies,
+    score_performance_signals,
+    score_testing,
+)
 
 logger = logging.getLogger("devpilot.pipeline")
-logging.basicConfig(level=logging.INFO)
 
-# In-memory store for live analysis results (keyed by analysis_id)
+ANALYSIS_VERSION = "2"
+
+# In-memory store keyed by analysis_id. Records always include user_id,
+# owner, repo, branch, commit_sha — reads MUST filter on those fields.
 ANALYSIS_STORE: dict[str, dict[str, Any]] = {}
+
+
+def _matches_repo(record: dict[str, Any], user_id: str, owner: str, repo: str) -> bool:
+    r = record.get("repository", {})
+    return (
+        record.get("user_id") == user_id
+        and r.get("owner", "").lower() == owner.lower()
+        and r.get("name", "").lower() == repo.lower()
+    )
 
 
 class AnalysisPipelineOrchestrator:
     @classmethod
-    def get_analysis_by_id(cls, analysis_id: str) -> Optional[dict[str, Any]]:
-        """Retrieve stored analysis JSON by ID."""
+    def get_analysis_by_id(cls, analysis_id: str) -> dict[str, Any] | None:
+        """Retrieve a stored analysis record by ID (ownership checked by routes)."""
         return ANALYSIS_STORE.get(analysis_id)
 
     @classmethod
-    def get_latest_analysis(cls) -> Optional[dict[str, Any]]:
-        """Retrieve the most recent completed or running analysis JSON."""
-        if not ANALYSIS_STORE:
+    def get_latest_for_repo(
+        cls, user_id: str, owner: str, repo: str
+    ) -> dict[str, Any] | None:
+        """Most recent analysis for THIS user + repository. Never cross-repo."""
+        candidates = [
+            r for r in ANALYSIS_STORE.values()
+            if _matches_repo(r, user_id, owner, repo)
+        ]
+        if not candidates:
             return None
-        sorted_analyses = sorted(
-            ANALYSIS_STORE.values(),
-            key=lambda x: x.get("created_at", ""),
-            reverse=True,
-        )
-        return sorted_analyses[0]
+        return sorted(candidates, key=lambda x: x.get("created_at", ""), reverse=True)[0]
 
     @classmethod
-    def get_all_analyses(cls) -> list[dict[str, Any]]:
-        """Retrieve all stored analyses sorted by creation date."""
-        return sorted(
-            list(ANALYSIS_STORE.values()),
-            key=lambda x: x.get("created_at", ""),
-            reverse=True,
-        )
+    def get_history_for_user(
+        cls, user_id: str, owner: str | None = None, repo: str | None = None
+    ) -> list[dict[str, Any]]:
+        """User-scoped history, optionally filtered to one repository."""
+        records = [r for r in ANALYSIS_STORE.values() if r.get("user_id") == user_id]
+        if owner and repo:
+            records = [
+                r for r in records
+                if r.get("repository", {}).get("owner", "").lower() == owner.lower()
+                and r.get("repository", {}).get("name", "").lower() == repo.lower()
+            ]
+        return sorted(records, key=lambda x: x.get("created_at", ""), reverse=True)
 
     @classmethod
-    def queue_analysis(cls, repo_url: str, branch: str = "main") -> str:
-        """Queue a new background repository analysis task and return analysis_id."""
+    def queue_analysis(cls, repo_url: str, branch: str, user_id: str) -> str:
+        """Validate URL, queue background analysis, return analysis_id.
+
+        Raises GitHubError (INVALID_URL) for malformed URLs.
+        """
+        owner, name = parse_github_url(repo_url)
+        branch = (branch or "main").strip() or "main"
         analysis_id = f"anl_{uuid.uuid4().hex[:12]}"
-        now_str = datetime.now(timezone.utc).isoformat()
+        now_str = datetime.now(UTC).isoformat()
 
-        parts = repo_url.rstrip("/").split("/")
-        name = parts[-1] if len(parts) >= 1 else "repository"
-        owner = parts[-2] if len(parts) >= 2 else "owner"
-
-        initial_state: dict[str, Any] = {
+        ANALYSIS_STORE[analysis_id] = {
             "analysis_id": analysis_id,
+            "analysis_version": ANALYSIS_VERSION,
+            "user_id": user_id,
             "repository": {
                 "owner": owner,
                 "name": name,
-                "url": repo_url,
-                "default_branch": branch,
+                "url": f"https://github.com/{owner}/{name}",
+                "requested_branch": branch,
+                "default_branch": None,
+                "commit_sha": None,
+                "stars": None,
+                "forks": None,
+                "open_issues": None,
+                "description": None,
+                "license": None,
+                "language": None,
             },
             "status": "QUEUED",
             "progress": 0,
-            "current_step": "Task Queued",
+            "current_step": "Task queued",
             "created_at": now_str,
             "completed_at": None,
             "duration_seconds": None,
@@ -76,183 +118,165 @@ class AnalysisPipelineOrchestrator:
             "quality": None,
             "architecture": None,
             "documentation": None,
+            "dependencies": None,
+            "testing": None,
+            "performance_signals": None,
             "health": None,
+            "ai_reviewer": None,
             "skipped_modules": [],
+            "warnings": [],
+            "error_code": None,
             "error_message": None,
         }
-
-        ANALYSIS_STORE[analysis_id] = initial_state
-        logger.info(f"Queued analysis {analysis_id} for {repo_url}")
-
-        # Launch background async task
-        asyncio.create_task(cls._execute_pipeline(analysis_id, repo_url, owner, name, branch))
+        logger.info(f"Queued analysis {analysis_id} for {owner}/{name} (user {user_id})")
+        asyncio.create_task(
+            cls._execute_pipeline(analysis_id, owner, name, branch)
+        )
         return analysis_id
 
+    # ------------------------------------------------------------------
+    # Pipeline
+    # ------------------------------------------------------------------
     @classmethod
-    async def _execute_pipeline(cls, analysis_id: str, repo_url: str, owner: str, name: str, branch: str):
-        """Asynchronously executes repository fetching, scanner execution, health score calculation, and storage."""
+    async def _execute_pipeline(
+        cls, analysis_id: str, owner: str, name: str, branch: str
+    ):
         start_time = time.time()
         record = ANALYSIS_STORE[analysis_id]
+        repo = record["repository"]
+        service = GitHubRepositoryService()
+
+        def _step(status: str, progress: int, message: str) -> None:
+            record["status"] = status
+            record["progress"] = progress
+            record["current_step"] = message
 
         try:
-            # -------------------------------------------------------------
-            # STEP 1: CLONING / FETCHING REPOSITORY TREE & SOURCE FILES
-            # -------------------------------------------------------------
-            record["status"] = "CLONING"
-            record["progress"] = 20
-            record["current_step"] = f"Fetching repository tree for {owner}/{name} ({branch})..."
-            logger.info(f"[{analysis_id}] Step 1: Fetching repository {repo_url}")
-            await asyncio.sleep(0.5)
-
-            # Try fetching from GitHub REST service or local workspace fallback
-            files_map: dict[str, str] = {}
-            tree_paths: list[str] = []
-
+            # ---- STEP 1: repository metadata (required) ----
+            _step("FETCHING", 10, f"Fetching repository metadata for {owner}/{name}...")
             try:
-                repo_info = await GitHubRepositoryService.get_repository_info(owner, name)
-                tree_paths = await GitHubRepositoryService.get_repository_tree(owner, name, branch)
-                files_map = await GitHubRepositoryService.fetch_key_files_map(owner, name, branch)
-            except Exception as e:
-                logger.warning(f"[{analysis_id}] GitHub API fetch failed or rate-limited ({e}). Loading local workspace files.")
-                # Fallback: scan local repository workspace files for live demonstration
-                files_map, tree_paths = cls._load_local_workspace_files()
+                repo_info = await service.get_repository_info(owner, name)
+            except GitHubError as e:
+                cls._fail(record, start_time, e.code, e.message)
+                return
 
-            # -------------------------------------------------------------
-            # STEP 2: SCANNING - RUN INDEPENDENT FAULT-TOLERANT SCANNERS
-            # -------------------------------------------------------------
-            record["status"] = "SCANNING"
-            record["progress"] = 50
-            record["current_step"] = "Executing Security, Quality, Architecture, & Documentation Scanners..."
-            logger.info(f"[{analysis_id}] Step 2: Running scanners across {len(files_map)} files")
-
-            # Scanner 1: Security Scanner
-            sec_score = None
-            sec_result_dict = None
-            try:
-                sec_res = SecurityScannerService.scan_files(repo_url, files_map)
-                sec_score = sec_res.security_score
-                sec_result_dict = {
-                    "status": "completed",
-                    "security_score": sec_score,
-                    "overall_risk_score": sec_res.overall_risk_score,
-                    "formula_used": sec_res.formula_used,
-                    "raw_metrics": sec_res.raw_metrics,
-                    "critical_count": sec_res.critical_count,
-                    "high_count": sec_res.high_count,
-                    "medium_count": sec_res.medium_count,
-                    "low_count": sec_res.low_count,
-                    "findings": [f.model_dump() for f in sec_res.findings],
+            default_branch = repo_info.get("default_branch") or "main"
+            active_branch = branch if branch else default_branch
+            repo.update(
+                {
+                    "default_branch": default_branch,
+                    "description": repo_info.get("description"),
+                    "stars": repo_info.get("stargazers_count"),
+                    "forks": repo_info.get("forks_count"),
+                    "open_issues": repo_info.get("open_issues_count"),
+                    "license": (repo_info.get("license") or {}).get("name"),
+                    "language": repo_info.get("language"),
+                    "topics": repo_info.get("topics", []),
+                    "private": repo_info.get("private"),
                 }
-            except Exception as e:
-                logger.error(f"[{analysis_id}] Security scanner failed: {e}")
-                sec_result_dict = {"status": "failed", "error": str(e)}
-                record["skipped_modules"].append("security")
+            )
+            logger.info(f"[{analysis_id}] Metadata OK; default branch {default_branch}")
 
-            # Scanner 2: Code Quality Scanner
-            qual_score = None
-            qual_result_dict = None
+            # ---- STEP 2: tree + files (required) ----
+            _step("FETCHING", 25, f"Building repository map ({active_branch})...")
             try:
-                qual_res = CodeQualityScannerService.scan_codebase(repo_url, files_map)
-                qual_score = qual_res.quality_score
-                qual_result_dict = {
-                    "status": "completed",
-                    "quality_score": qual_score,
-                    "formula_used": qual_res.formula_used,
-                    "raw_metrics": qual_res.raw_metrics,
-                    "total_issues": qual_res.total_issues,
-                    "dead_code_count": qual_res.dead_code_count,
-                    "duplicate_code_count": qual_res.duplicate_code_count,
-                    "unused_imports_count": qual_res.unused_imports_count,
-                    "large_files_count": qual_res.large_files_count,
-                    "high_complexity_count": qual_res.high_complexity_count,
-                    "findings": [f.model_dump() for f in qual_res.findings],
-                }
-            except Exception as e:
-                logger.error(f"[{analysis_id}] Code quality scanner failed: {e}")
-                qual_result_dict = {"status": "failed", "error": str(e)}
-                record["skipped_modules"].append("quality")
+                tree_paths = await service.get_repository_tree(owner, name, active_branch)
+            except GitHubError as e:
+                if active_branch != default_branch:
+                    # Requested branch may not exist — retry default branch once.
+                    record["warnings"].append(
+                        f"Branch '{active_branch}' unavailable ({e.code}); used default branch '{default_branch}'."
+                    )
+                    active_branch = default_branch
+                    try:
+                        tree_paths = await service.get_repository_tree(
+                            owner, name, active_branch
+                        )
+                    except GitHubError as e2:
+                        cls._fail(record, start_time, e2.code, e2.message)
+                        return
+                else:
+                    cls._fail(record, start_time, e.code, e.message)
+                    return
+            repo["requested_branch"] = active_branch
 
-            # Scanner 3: Architecture Analyzer
-            arch_score = None
-            arch_result_dict = None
+            _step("FETCHING", 35, f"Fetching source files for {owner}/{name}...")
             try:
-                arch_res = ArchitectureAnalyzerService.analyze_architecture(repo_url, tree_paths)
-                arch_score = arch_res.architecture_score
-                arch_result_dict = {
-                    "status": "completed",
-                    "architecture_score": arch_score,
-                    "detected_pattern": arch_res.detected_pattern.value,
-                    "confidence_score": arch_res.confidence_score,
-                    "modularity_score": arch_res.modularity_score,
-                    "coupling_score": arch_res.coupling_score,
-                    "formula_used": arch_res.formula_used,
-                    "raw_metrics": arch_res.raw_metrics,
-                    "folder_graph": arch_res.folder_graph,
-                    "dependency_graph": [d.model_dump() for d in arch_res.dependency_graph],
-                    "mermaid_diagram": arch_res.mermaid_diagram,
-                    "summary": arch_res.summary,
-                }
-            except Exception as e:
-                logger.error(f"[{analysis_id}] Architecture analyzer failed: {e}")
-                arch_result_dict = {"status": "failed", "error": str(e)}
-                record["skipped_modules"].append("architecture")
+                files_map = await service.fetch_key_files_map(owner, name, active_branch)
+            except GitHubError as e:
+                cls._fail(record, start_time, e.code, e.message)
+                return
 
-            # Scanner 4: Documentation Scanner
-            doc_score = None
-            doc_result_dict = None
-            try:
-                doc_score, doc_metrics, doc_formula = DocumentationScannerService.scan_documentation(files_map)
-                doc_result_dict = {
-                    "status": "completed" if doc_score is not None else "failed",
-                    "documentation_score": doc_score,
-                    "formula_used": doc_formula,
-                    "raw_metrics": doc_metrics,
-                }
-            except Exception as e:
-                logger.error(f"[{analysis_id}] Documentation scanner failed: {e}")
-                doc_result_dict = {"status": "failed", "error": str(e)}
-                record["skipped_modules"].append("documentation")
+            head_sha = await service.get_head_sha(owner, name, active_branch)
+            if head_sha:
+                repo["commit_sha"] = head_sha[:7]
 
-            record["security"] = sec_result_dict
-            record["quality"] = qual_result_dict
-            record["architecture"] = arch_result_dict
-            record["documentation"] = doc_result_dict
+            if not tree_paths:
+                cls._fail(
+                    record, start_time, "EMPTY_TREE",
+                    f"GitHub returned an empty file tree for '{owner}/{name}'. The repository may be empty.",
+                )
+                return
 
-            # -------------------------------------------------------------
-            # STEP 3: CALCULATING COMPOSITE HEALTH SCORE
-            # -------------------------------------------------------------
-            record["status"] = "CALCULATING"
-            record["progress"] = 85
-            record["current_step"] = "Calculating composite health score from executed scanners..."
-            logger.info(f"[{analysis_id}] Step 3: Calculating health score")
-            await asyncio.sleep(0.3)
+            repo_url = f"https://github.com/{owner}/{name}"
+            logger.info(
+                f"[{analysis_id}] Tree OK: {len(tree_paths)} paths, {len(files_map)} files fetched"
+            )
 
-            merged_raw_metrics = {}
-            if sec_result_dict and "raw_metrics" in sec_result_dict:
-                merged_raw_metrics.update(sec_result_dict["raw_metrics"])
-            if qual_result_dict and "raw_metrics" in qual_result_dict:
-                merged_raw_metrics.update(qual_result_dict["raw_metrics"])
-            if arch_result_dict and "raw_metrics" in arch_result_dict:
-                merged_raw_metrics.update(arch_result_dict["raw_metrics"])
+            # ---- STEP 3: scanners ----
+            _step("SCANNING", 50, "Running security checks...")
+            sec_score, sec_result = cls._run_security(repo_url, files_map, record)
 
-            merged_formulas = {}
-            if sec_result_dict and "formula_used" in sec_result_dict:
-                merged_formulas["security"] = sec_result_dict["formula_used"]
-            if qual_result_dict and "formula_used" in qual_result_dict:
-                merged_formulas["quality"] = qual_result_dict["formula_used"]
-            if arch_result_dict and "formula_used" in arch_result_dict:
-                merged_formulas["architecture"] = arch_result_dict["formula_used"]
+            _step("SCANNING", 60, "Running code-quality checks...")
+            qual_score, qual_result = cls._run_quality(repo_url, files_map, record)
+
+            _step("SCANNING", 68, "Analyzing architecture...")
+            arch_score, arch_result = cls._run_architecture(repo_url, tree_paths, record)
+
+            _step("SCANNING", 74, "Inspecting documentation...")
+            doc_score, doc_result = cls._run_documentation(files_map, record)
+
+            _step("SCANNING", 80, "Analyzing dependencies, tests, performance signals...")
+            deps = score_dependencies(tree_paths, files_map)
+            tests = score_testing(tree_paths, files_map)
+            perf = score_performance_signals(tree_paths, files_map)
+            record["dependencies"] = {"status": "completed", **deps}
+            record["testing"] = {"status": "completed", **tests}
+            record["performance_signals"] = {"status": "completed", **perf}
+            deps_score: float | None = float(deps["score"])
+            tests_score: float | None = float(tests["score"])
+            perf_score: float | None = float(perf["score"])
+
+            record["security"] = sec_result
+            record["quality"] = qual_result
+            record["architecture"] = arch_result
+            record["documentation"] = doc_result
+
+            # ---- STEP 4: health ----
+            _step("CALCULATING", 86, "Calculating health metrics...")
+            merged_raw: dict[str, Any] = {}
+            merged_formulas: dict[str, str] = {}
+            for res in (sec_result, qual_result, arch_result):
+                if res and res.get("status") == "completed":
+                    merged_raw.update(res.get("raw_metrics", {}))
+                    if res.get("formula_used"):
+                        merged_formulas[res.get("pillar", "scanner")] = res["formula_used"]
+            merged_raw["dependencies"] = deps["metrics"]
+            merged_raw["testing"] = tests["metrics"]
+            merged_raw["performance_signals"] = perf["metrics"]
 
             health_res = HealthScoreCalculatorService.calculate_health_score(
                 repo_url=repo_url,
                 security_score=sec_score,
                 code_quality_score=qual_score,
                 architecture_score=arch_score,
+                performance_score=perf_score,
                 documentation_score=doc_score,
-                raw_metrics=merged_raw_metrics,
+                dependencies_score=deps_score,
+                testing_score=tests_score,
+                raw_metrics=merged_raw,
                 formulas_used=merged_formulas,
             )
-
             record["health"] = {
                 "overall_health_score": health_res.overall_health_score,
                 "health_grade": health_res.health_grade,
@@ -262,89 +286,137 @@ class AnalysisPipelineOrchestrator:
                 "actionable_suggestions": health_res.actionable_suggestions,
             }
 
-            # -------------------------------------------------------------
-            # STEP 4: AI SUMMARIZING VIA NVIDIA LLM API
-            # -------------------------------------------------------------
-            record["status"] = "AI_SUMMARIZING"
-            record["progress"] = 90
-            record["current_step"] = "Generating AI Summary via NVIDIA free LLM models..."
-            logger.info(f"[{analysis_id}] Step 4: Generating AI summary via NVIDIA LLM")
-            await asyncio.sleep(0.3)
-
-            ai_review = None
+            # ---- STEP 5: optional AI interpretation (never blocks results) ----
+            _step("AI_SUMMARIZING", 92, "Generating AI insights (optional)...")
             try:
                 from app.infrastructure.ai.reviewer import AICodeReviewerService
-                readme_text = files_map.get("README.md")
-                ai_review_report = await AICodeReviewerService.review_repository(
+
+                readme_text = files_map.get("README.md") or files_map.get("readme.md")
+                ai_report = await AICodeReviewerService.review_repository(
                     repo_url=repo_url,
-                    repo_summary=f"Analysis run {analysis_id}",
+                    repo_summary=f"{owner}/{name} @ {repo.get('commit_sha') or active_branch}",
                     file_tree=tree_paths,
                     readme_content=readme_text,
                     static_analysis_json=record,
                 )
-                ai_review = ai_review_report.model_dump()
+                record["ai_reviewer"] = ai_report.model_dump()
             except Exception as e:
-                logger.error(f"[{analysis_id}] AI summary generation failed: {e}")
-                ai_review = {"status": "failed", "error": str(e)}
+                logger.warning(f"[{analysis_id}] AI insights unavailable: {e}")
+                record["ai_reviewer"] = {"status": "unavailable", "error": str(e)}
+                record["skipped_modules"].append("ai_reviewer")
 
-            record["ai_reviewer"] = ai_review
-
-            # -------------------------------------------------------------
-            # STEP 5: COMPLETED & STORE RESULTS
-            # -------------------------------------------------------------
             duration = round(time.time() - start_time, 2)
-            end_time_str = datetime.now(timezone.utc).isoformat()
-
             record["status"] = "COMPLETED"
             record["progress"] = 100
-            record["current_step"] = "Analysis Completed Successfully"
-            record["completed_at"] = end_time_str
+            record["current_step"] = "Analysis completed"
+            record["completed_at"] = datetime.now(UTC).isoformat()
             record["duration_seconds"] = duration
+            logger.info(
+                f"[{analysis_id}] Completed {owner}/{name} in {duration}s. "
+                f"Health: {health_res.overall_health_score}"
+            )
 
-            logger.info(f"[{analysis_id}] Completed analysis in {duration}s. Health Score: {health_res.overall_health_score}")
+        except Exception as e:  # defensive: never leave a run stuck
+            logger.error(f"[{analysis_id}] Pipeline error: {e}", exc_info=True)
+            cls._fail(record, start_time, "PIPELINE_ERROR", f"Analysis failed: {e}")
 
+    # ------------------------------------------------------------------
+    # Scanner wrappers (each isolated; failure skips only its own module)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _run_security(repo_url, files_map, record):
+        try:
+            res = SecurityScannerService.scan_files(repo_url, files_map)
+            return res.security_score, {
+                "pillar": "security",
+                "status": "completed",
+                "security_score": res.security_score,
+                "overall_risk_score": res.overall_risk_score,
+                "formula_used": res.formula_used,
+                "raw_metrics": res.raw_metrics,
+                "critical_count": res.critical_count,
+                "high_count": res.high_count,
+                "medium_count": res.medium_count,
+                "low_count": res.low_count,
+                "findings": [f.model_dump() for f in res.findings],
+            }
         except Exception as e:
-            duration = round(time.time() - start_time, 2)
-            logger.error(f"[{analysis_id}] Pipeline execution error: {e}", exc_info=True)
-            record["status"] = "FAILED"
-            record["progress"] = 100
-            record["current_step"] = f"Pipeline Error: {str(e)}"
-            record["error_message"] = str(e)
-            record["duration_seconds"] = duration
+            logger.error(f"Security scanner failed: {e}")
+            record["skipped_modules"].append("security")
+            return None, {"pillar": "security", "status": "failed", "error": str(e)}
 
-    @classmethod
-    def _load_local_workspace_files(cls) -> tuple[dict[str, str], list[str]]:
-        """Walks and reads actual repository workspace files from local disk for live pipeline analysis."""
-        import os
-        from pathlib import Path
+    @staticmethod
+    def _run_quality(repo_url, files_map, record):
+        try:
+            res = CodeQualityScannerService.scan_codebase(repo_url, files_map)
+            return res.quality_score, {
+                "pillar": "quality",
+                "status": "completed",
+                "quality_score": res.quality_score,
+                "formula_used": res.formula_used,
+                "raw_metrics": res.raw_metrics,
+                "total_issues": res.total_issues,
+                "dead_code_count": res.dead_code_count,
+                "duplicate_code_count": res.duplicate_code_count,
+                "unused_imports_count": res.unused_imports_count,
+                "large_files_count": res.large_files_count,
+                "high_complexity_count": res.high_complexity_count,
+                "findings": [f.model_dump() for f in res.findings],
+            }
+        except Exception as e:
+            logger.error(f"Quality scanner failed: {e}")
+            record["skipped_modules"].append("quality")
+            return None, {"pillar": "quality", "status": "failed", "error": str(e)}
 
-        files_map: dict[str, str] = {}
-        tree_paths: list[str] = []
+    @staticmethod
+    def _run_architecture(repo_url, tree_paths, record):
+        try:
+            res = ArchitectureAnalyzerService.analyze_architecture(repo_url, tree_paths)
+            return res.architecture_score, {
+                "pillar": "architecture",
+                "status": "completed",
+                "architecture_score": res.architecture_score,
+                "detected_pattern": res.detected_pattern.value,
+                "confidence_score": res.confidence_score,
+                "modularity_score": res.modularity_score,
+                "coupling_score": res.coupling_score,
+                "formula_used": res.formula_used,
+                "raw_metrics": res.raw_metrics,
+                "folder_graph": res.folder_graph,
+                "dependency_graph": [d.model_dump() for d in res.dependency_graph],
+                "mermaid_diagram": res.mermaid_diagram,
+                "summary": res.summary,
+            }
+        except Exception as e:
+            logger.error(f"Architecture analyzer failed: {e}")
+            record["skipped_modules"].append("architecture")
+            return None, {"pillar": "architecture", "status": "failed", "error": str(e)}
 
-        # Find project root directory
-        curr_dir = Path.cwd()
-        if (curr_dir / "backend").exists():
-            root_dir = curr_dir
-        elif curr_dir.name == "backend":
-            root_dir = curr_dir.parent
-        else:
-            root_dir = curr_dir
+    @staticmethod
+    def _run_documentation(files_map, record):
+        try:
+            score, metrics, formula = DocumentationScannerService.scan_documentation(
+                files_map
+            )
+            return score, {
+                "pillar": "documentation",
+                "status": "completed" if score is not None else "failed",
+                "documentation_score": score,
+                "formula_used": formula,
+                "raw_metrics": metrics,
+            }
+        except Exception as e:
+            logger.error(f"Documentation scanner failed: {e}")
+            record["skipped_modules"].append("documentation")
+            return None, {"pillar": "documentation", "status": "failed", "error": str(e)}
 
-        key_extensions = (".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".yml", ".yaml", "Dockerfile", "requirements.txt", "pom.xml", "Cargo.toml", "go.mod")
-        ignore_dirs = {".git", "node_modules", ".next", "__pycache__", "venv", ".venv", "dist", "build", ".agents"}
-
-        for root, dirs, files in os.walk(root_dir):
-            dirs[:] = [d for d in dirs if d not in ignore_dirs]
-            for file in files:
-                rel_path = os.path.relpath(os.path.join(root, file), root_dir).replace("\\", "/")
-                tree_paths.append(rel_path)
-                if file.endswith(key_extensions) or file in ("Dockerfile", "README.md"):
-                    if len(files_map) < 100:
-                        try:
-                            abs_file_path = os.path.join(root, file)
-                            with open(abs_file_path, "r", encoding="utf-8", errors="ignore") as f:
-                                files_map[rel_path] = f.read()
-                        except Exception:
-                            continue
-
-        return files_map, tree_paths
+    @staticmethod
+    def _fail(record: dict[str, Any], start_time: float, code: str, message: str) -> None:
+        record["status"] = "FAILED"
+        record["progress"] = 100
+        record["current_step"] = message
+        record["error_code"] = code
+        record["error_message"] = message
+        record["completed_at"] = datetime.now(UTC).isoformat()
+        record["duration_seconds"] = round(time.time() - start_time, 2)
+        logger.warning(f"Analysis {record.get('analysis_id')} failed [{code}]: {message}")

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { Suspense, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   RepositoryCard,
@@ -8,106 +9,131 @@ import {
   PillarChartWidget,
   RecentAnalysisWidget,
 } from "@/components/DashboardWidgets";
-import { AnalyzeModal } from "@/components/AnalyzeModal";
+import { AnalyzeModal, type AnalysisRecord } from "@/components/AnalyzeModal";
 import { AnalysisDetailTabs } from "@/components/AnalysisDetailTabs";
-import { Sparkles, RefreshCw, Plus, ShieldCheck, Activity, Cpu, GitPullRequest } from "lucide-react";
-import { getApiBaseUrl } from "@/config/api";
+import { LoadingSkeleton, ErrorBlock, EmptyBlock } from "@/components/StateBlocks";
+import { Sparkles, RefreshCw, Plus, Search } from "lucide-react";
+import { apiFetch, ApiError, parseRepoInput, repoSearch } from "@/lib/api";
+import { useRepo, repoKey, repoQuery, withRepo } from "@/lib/useRepo";
 
-export default function DashboardPage() {
+type FullRecord = AnalysisRecord & {
+  repository?: {
+    owner?: string;
+    name?: string;
+    url?: string;
+    default_branch?: string | null;
+    requested_branch?: string | null;
+    commit_sha?: string | null;
+    stars?: number | null;
+    forks?: number | null;
+    open_issues?: number | null;
+    description?: string | null;
+    license?: string | null;
+    language?: string | null;
+  };
+  health?: {
+    overall_health_score?: number | null;
+    health_grade?: string;
+    individual_scores?: Record<string, number | null>;
+    formulas_used?: Record<string, string>;
+  } | null;
+  dependencies?: { score?: number } | null;
+  testing?: { score?: number } | null;
+  performance_signals?: { score?: number } | null;
+};
+
+function DashboardInner() {
+  const repo = useRepo();
+  const router = useRouter();
+  const [record, setRecord] = useState<FullRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeRepoName, setActiveRepoName] = useState("DevPilot-AI");
-  const [activeOwner, setActiveOwner] = useState("enterprise-org");
-  const [activeUrl, setActiveUrl] = useState("https://github.com/enterprise-org/DevPilot-AI");
+  const [urlInput, setUrlInput] = useState("");
+  const [inputError, setInputError] = useState("");
 
-  // Real Health Score Report state from backend
-  const [healthData, setHealthData] = useState<{
-    overallScore: number | null;
-    securityScore: number | null;
-    architectureScore: number | null;
-    qualityScore: number | null;
-    grade: string;
-    pillars: Array<{ name: string; score: number | null; color: string }>;
-    formulas: Record<string, string>;
-  }>({
-    overallScore: null,
-    securityScore: null,
-    architectureScore: null,
-    qualityScore: null,
-    grade: "Not Analyzed",
-    pillars: [
-      { name: "Security", score: null, color: "bg-emerald-400" },
-      { name: "Code Quality", score: null, color: "bg-cyan-400" },
-      { name: "Architecture", score: null, color: "bg-indigo-400" },
-      { name: "Performance", score: null, color: "bg-amber-400" },
-      { name: "Documentation", score: null, color: "bg-purple-400" },
-      { name: "Dependencies", score: null, color: "bg-teal-400" },
-      { name: "Testing", score: null, color: "bg-rose-400" },
-    ],
-    formulas: {},
-  });
-
-  const fetchLatestAnalysis = async () => {
-    try {
-      setRefreshing(true);
-      const baseUrl = getApiBaseUrl();
-      const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
-        headers: { Authorization: "Bearer mock_jwt_token_demo" },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        updateDashboardFromData(data);
-      }
-    } catch (err) {
-      console.log("No backend analysis record found yet:", err);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const updateDashboardFromData = (data: any) => {
-    if (!data) return;
-
-    if (data.repository) {
-      setActiveRepoName(data.repository.name || "DevPilot-AI");
-      setActiveOwner(data.repository.owner || "enterprise-org");
-      setActiveUrl(data.repository.url || "https://github.com/enterprise-org/DevPilot-AI");
-    }
-
-    const health = data.health || {};
-    const ind = health.individual_scores || {};
-    const sec = data.security?.security_score ?? ind.security_score ?? null;
-    const qual = data.quality?.quality_score ?? ind.code_quality_score ?? null;
-    const arch = data.architecture?.architecture_score ?? ind.architecture_score ?? null;
-    const doc = data.documentation?.documentation_score ?? ind.documentation_score ?? null;
-    const perf = ind.performance_score ?? null;
-    const deps = ind.dependencies_score ?? null;
-    const test = ind.testing_score ?? null;
-    const overall = health.overall_health_score ?? null;
-    const grade = health.health_grade || "Not Analyzed";
-
-    setHealthData({
-      overallScore: overall,
-      securityScore: sec,
-      architectureScore: arch,
-      qualityScore: qual,
-      grade: grade,
-      pillars: [
-        { name: "Security", score: sec, color: "bg-emerald-400" },
-        { name: "Code Quality", score: qual, color: "bg-cyan-400" },
-        { name: "Architecture", score: arch, color: "bg-indigo-400" },
-        { name: "Performance", score: perf, color: "bg-amber-400" },
-        { name: "Documentation", score: doc, color: "bg-purple-400" },
-        { name: "Dependencies", score: deps, color: "bg-teal-400" },
-        { name: "Testing", score: test, color: "bg-rose-400" },
-      ],
-      formulas: health.formulas_used || {},
-    });
-  };
+  const key = repo ? repoKey(repo) : "";
 
   useEffect(() => {
-    fetchLatestAnalysis();
-  }, []);
+    if (!repo) {
+      setRecord(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRecord(null); // clear previous repo's data immediately
+    setError(null);
+    setLoading(true);
+    apiFetch<FullRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
+      .then((data) => {
+        if (!cancelled) setRecord(data);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          if (e instanceof ApiError && e.status === 404) {
+            setRecord(null); // never analyzed — empty state, not an error
+          } else {
+            setError(e instanceof ApiError ? e.message : "Failed to load analysis.");
+          }
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitRepo = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseRepoInput(urlInput);
+    if (!parsed) {
+      setInputError("Enter a valid GitHub URL (github.com/owner/repo) or owner/repo.");
+      return;
+    }
+    setInputError("");
+    router.push(`/dashboard${repoSearch(parsed.owner, parsed.name)}`);
+  };
+
+  const refresh = () => {
+    if (!repo) return;
+    setLoading(true);
+    setError(null);
+    apiFetch<FullRecord>(`/api/v1/analysis/by-repo?${repoQuery(repo)}`)
+      .then(setRecord)
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 404) setRecord(null);
+        else setError(e instanceof ApiError ? e.message : "Failed to load analysis.");
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const onComplete = (rec: AnalysisRecord) => {
+    setRecord(rec as FullRecord);
+    setIsModalOpen(false);
+    if (rec.repository?.owner && rec.repository?.name) {
+      router.push(
+        `/dashboard${repoSearch(rec.repository.owner, rec.repository.name)}`
+      );
+    }
+  };
+
+  const r = record?.repository;
+  const health = record?.health;
+  const ind = health?.individual_scores || {};
+  const formulas = health?.formulas_used || {};
+
+  const pillars = [
+    { name: "Security", score: ind.security_score ?? null, color: "bg-emerald-400" },
+    { name: "Code Quality", score: ind.code_quality_score ?? null, color: "bg-cyan-400" },
+    { name: "Architecture", score: ind.architecture_score ?? null, color: "bg-indigo-400" },
+    { name: "Performance Signals", score: ind.performance_score ?? null, color: "bg-amber-400" },
+    { name: "Documentation", score: ind.documentation_score ?? null, color: "bg-purple-400" },
+    { name: "Dependencies", score: ind.dependencies_score ?? null, color: "bg-teal-400" },
+    { name: "Testing", score: ind.testing_score ?? null, color: "bg-rose-400" },
+  ];
 
   return (
     <motion.div
@@ -116,75 +142,172 @@ export default function DashboardPage() {
       transition={{ duration: 0.4 }}
       className="space-y-8 max-w-7xl mx-auto py-8 px-4 sm:px-6"
     >
-      {/* Header Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>DevPilot AI Engine v0.1.0</span>
+            <span>Repository intelligence</span>
           </div>
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight linear-gradient-text">
-            Repository Intelligence Dashboard
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight linear-gradient-text">
+            {repo ? `${repo.owner} / ${repo.repo}` : "Dashboard"}
           </h1>
-          <p className="text-slate-400 text-sm max-w-xl">
-            Real-time automated multi-dimensional analysis spanning Security, Quality, Architecture, & Performance.
-          </p>
+          {record?.status === "FAILED" ? (
+            <p className="text-rose-400 text-sm font-mono">
+              Analysis failed: {record.error_message}
+            </p>
+          ) : (
+            <p className="text-slate-400 text-sm max-w-xl">
+              {r?.description ||
+                "Security, quality, architecture, and maintainability from live GitHub data."}
+            </p>
+          )}
         </div>
 
-        {/* Action Buttons */}
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchLatestAnalysis}
-            className="px-4 py-2.5 text-xs font-bold rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 transition-all inline-flex items-center gap-2"
+            onClick={refresh}
+            disabled={!repo || loading}
+            className="px-4 py-2.5 text-xs font-bold rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 transition-all inline-flex items-center gap-2 disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-cyan-400" : ""}`} />
-            <span>{refreshing ? "Refreshing..." : "Re-run Analysis"}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-cyan-400" : ""}`} />
+            <span>{loading ? "Loading..." : "Refresh"}</span>
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-5 py-2.5 text-xs font-bold rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 transition-all inline-flex items-center gap-1.5"
+            className="px-5 py-2.5 text-xs font-semibold rounded-md bg-slate-100 hover:bg-white text-slate-950 transition-colors inline-flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
-            <span>Analyze Repo</span>
+            <span>Analyze repo</span>
           </button>
         </div>
       </div>
 
-      {/* Main Repository Card */}
-      <RepositoryCard
-        name={activeRepoName}
-        owner={activeOwner}
-        url={activeUrl}
-        defaultBranch="main"
-        framework="Next.js 15 + FastAPI"
-        isPrivate={true}
-      />
+      <form onSubmit={submitRepo} className="flex flex-col sm:flex-row gap-2">
+        <div className="flex items-center gap-2 px-3 text-slate-400 rounded-xl bg-slate-950/80 border border-white/15 flex-1">
+          <Search className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="github.com/owner/repo — switch repository"
+            aria-label="Repository URL to analyze"
+            className="flex-1 bg-transparent py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none font-mono"
+          />
+        </div>
+        <button
+          type="submit"
+          className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-200 transition-colors"
+        >
+          Load
+        </button>
+      </form>
+      {inputError && (
+        <p role="alert" className="-mt-6 text-xs text-rose-400 font-mono">
+          {inputError}
+        </p>
+      )}
 
-      {/* Top Scores Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <ScoreWidget title="Overall Health Score" score={healthData.overallScore} grade={healthData.grade} icon="health" formula={healthData.formulas.overall_health_score} />
-        <ScoreWidget title="Security Compliance" score={healthData.securityScore} grade={healthData.securityScore !== null ? "Calculated" : "Not Analyzed"} icon="security" formula={healthData.formulas.security || "100 - (Critical*25 + High*15 + Medium*8 + Low*3)"} />
-        <ScoreWidget title="Architecture Rating" score={healthData.architectureScore} grade={healthData.architectureScore !== null ? "Calculated" : "Not Analyzed"} icon="health" formula={healthData.formulas.architecture || "BasePatternScore + (LayerCount*2) - (Coupling*0.1)"} />
-        <ScoreWidget title="Code Quality Index" score={healthData.qualityScore} grade={healthData.qualityScore !== null ? "Calculated" : "Not Analyzed"} icon="health" formula={healthData.formulas.quality || "100 - (HighComplexity*5 + DeadCode*4 + UnusedImports*2)"} />
-      </div>
+      {!repo ? (
+        <EmptyBlock
+          title="No repository selected"
+          hint="Paste a github.com/owner/repo URL above, or open the analyzer to pick one."
+        />
+      ) : loading && !record ? (
+        <div className="space-y-4">
+          <LoadingSkeleton lines={2} label="Loading analysis" />
+          <LoadingSkeleton lines={4} label="Loading metrics" />
+        </div>
+      ) : error ? (
+        <ErrorBlock message={error} onRetry={refresh} />
+      ) : !record ? (
+        <EmptyBlock
+          title={`'${repo.owner}/${repo.repo}' hasn't been analyzed yet`}
+          hint="Run an analysis to generate security, quality, and architecture results from live GitHub data."
+        />
+      ) : record.status === "FAILED" ? (
+        <ErrorBlock
+          message={record.error_message || "Analysis failed."}
+          onRetry={() => setIsModalOpen(true)}
+        />
+      ) : (
+        <>
+          <RepositoryCard
+            name={r?.name || repo.repo}
+            owner={r?.owner || repo.owner}
+            url={r?.url || `https://github.com/${repo.owner}/${repo.repo}`}
+            defaultBranch={r?.requested_branch || r?.default_branch || "main"}
+            framework={[
+              r?.language,
+              r?.license,
+              r?.commit_sha ? `commit ${r.commit_sha}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            isPrivate={false}
+          />
 
-      {/* Analytics & History Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PillarChartWidget pillars={healthData.pillars} />
-        <RecentAnalysisWidget />
-      </div>
+          {(r?.stars != null || r?.forks != null || r?.open_issues != null) && (
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs font-mono text-slate-400">
+              {r?.stars != null && <span>★ {r.stars} stars</span>}
+              {r?.forks != null && <span>⑂ {r.forks} forks</span>}
+              {r?.open_issues != null && <span>◉ {r.open_issues} open issues</span>}
+            </div>
+          )}
 
-      {/* Detailed Analysis Pillar Tabs */}
-      <AnalysisDetailTabs />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <ScoreWidget
+              title="Overall Health"
+              score={health?.overall_health_score ?? null}
+              grade={health?.health_grade || "—"}
+              icon="health"
+              formula={formulas.overall_health_score}
+            />
+            <ScoreWidget
+              title="Security"
+              score={ind.security_score ?? null}
+              grade={ind.security_score != null ? "Measured" : "—"}
+              icon="security"
+              formula={formulas.security}
+            />
+            <ScoreWidget
+              title="Architecture"
+              score={ind.architecture_score ?? null}
+              grade={ind.architecture_score != null ? "Measured" : "—"}
+              icon="health"
+              formula={formulas.architecture}
+            />
+            <ScoreWidget
+              title="Code Quality"
+              score={ind.code_quality_score ?? null}
+              grade={ind.code_quality_score != null ? "Measured" : "—"}
+              icon="health"
+              formula={formulas.quality}
+            />
+          </div>
 
-      {/* Analyze New Repository Modal */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <PillarChartWidget pillars={pillars} />
+            <RecentAnalysisWidget repo={repo} />
+          </div>
+
+          <AnalysisDetailTabs record={record} />
+        </>
+      )}
+
       <AnalyzeModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onAnalysisComplete={(data) => {
-          updateDashboardFromData(data);
-        }}
+        initialUrl={repo ? `https://github.com/${repo.owner}/${repo.repo}` : ""}
+        onAnalysisComplete={onComplete}
       />
     </motion.div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<LoadingSkeleton lines={5} label="Loading dashboard" />}>
+      <DashboardInner />
+    </Suspense>
   );
 }

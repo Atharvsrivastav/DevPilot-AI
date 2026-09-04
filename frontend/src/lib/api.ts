@@ -1,16 +1,24 @@
 import { getApiBaseUrl } from "@/config/api";
 
-export const DEMO_TOKEN_FALLBACK = "mock_jwt_token_demo";
-
-export function getAuthToken(): string {
+/**
+ * Stored user token (from a real login flow). Returns null when absent —
+ * the dev backend accepts unauthenticated requests outside production.
+ * No demo/mock token is ever hardcoded or sent.
+ */
+export function getAuthToken(): string | null {
   try {
-    return (
-      localStorage.getItem("devpilot-token") ||
-      process.env.NEXT_PUBLIC_DEMO_TOKEN ||
-      DEMO_TOKEN_FALLBACK
-    );
+    return localStorage.getItem("devpilot-token");
   } catch {
-    return process.env.NEXT_PUBLIC_DEMO_TOKEN || DEMO_TOKEN_FALLBACK;
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem("devpilot-token", token);
+    else localStorage.removeItem("devpilot-token");
+  } catch {
+    /* storage unavailable */
   }
 }
 
@@ -29,22 +37,23 @@ interface ApiFetchOptions extends RequestInit {
   auth?: boolean;
 }
 
-/** Central fetch wrapper: base URL, auth header, timeout, JSON errors. */
+/** Central fetch wrapper: base URL, optional auth, timeout, JSON errors. */
 export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { timeoutMs = 15000, auth = true, headers, ...rest } = options;
+  const { timeoutMs = 30000, auth = true, headers, ...rest } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const token = auth ? getAuthToken() : null;
     const res = await fetch(`${getApiBaseUrl()}${path}`, {
       ...rest,
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(auth ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...headers,
       },
     });
@@ -96,7 +105,7 @@ export function parseRepoInput(input: string): {
   const trimmed = input.trim().replace(/\.git$/, "");
   if (!trimmed) return null;
   const m = trimmed.match(
-    /github\.com[/:]([^/\s]+)\/([^/\s]+)/i
+    /github\.com[/:]([^/\s]+)\/([^/\s?#]+)/i
   );
   if (m) {
     return {
@@ -114,4 +123,8 @@ export function parseRepoInput(input: string): {
     };
   }
   return null;
+}
+
+export function repoSearch(owner: string, repo: string): string {
+  return `?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`;
 }

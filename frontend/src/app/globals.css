@@ -4,28 +4,28 @@
 
 :root {
   color-scheme: light;
-  --bg-app: #f1f5f9;
-  --bg-panel: rgba(255, 255, 255, 0.85);
-  --bg-sunken: #e2e8f0;
-  --border-panel: rgba(15, 23, 42, 0.1);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --accent: #0891b2;
+  --bg-app: #f6f8fa;
+  --bg-panel: #ffffff;
+  --bg-sunken: #eef1f4;
+  --border-panel: #d9dee4;
+  --text-primary: #1f2328;
+  --text-secondary: #59636e;
+  --text-muted: #9198a1;
+  --accent: #0969da;
   --accent-contrast: #ffffff;
 }
 
 .dark {
   color-scheme: dark;
-  --bg-app: #030712;
-  --bg-panel: rgba(15, 23, 42, 0.75);
-  --bg-sunken: #020617;
-  --border-panel: rgba(255, 255, 255, 0.1);
-  --text-primary: #f9fafb;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --accent: #22d3ee;
-  --accent-contrast: #020617;
+  --bg-app: #0a0c10;
+  --bg-panel: #11141a;
+  --bg-sunken: #07090c;
+  --border-panel: #232830;
+  --text-primary: #e6e9ee;
+  --text-secondary: #9aa3af;
+  --text-muted: #5f6b7a;
+  --accent: #6cb6ff;
+  --accent-contrast: #0a0c10;
 }
 
 @layer base {
@@ -41,19 +41,19 @@
     font-feature-settings: "cv02", "cv03", "cv04";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    font-size: 14px;
   }
 
   ::selection {
-    background: rgba(34, 211, 238, 0.3);
+    background: rgba(108, 182, 255, 0.3);
   }
 
   :focus-visible {
-    outline: 2px solid #22d3ee;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: 6px;
   }
 
-  /* Slim themed scrollbars */
   * {
     scrollbar-width: thin;
     scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
@@ -71,36 +71,29 @@
   }
 }
 
-/* Frosted panel — static by default, no layout-shifting hover lift.
-   Opt into lift explicitly with .glass-lift. */
+/* Flat panel — replaces the old frosted/neon card. Name kept so existing
+   markup keeps working; appearance is now a restrained dev-tool surface. */
 .glass-panel {
   background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-panel);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.35);
+  box-shadow: none;
 }
 
-.glass-lift {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-.glass-lift:hover {
-  border-color: rgba(34, 211, 238, 0.35);
-  box-shadow: 0 25px 50px -12px rgba(56, 189, 248, 0.18);
-  transform: translateY(-2px);
+/* Section label: small uppercase mono-ish heading used above content blocks */
+.panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
 }
 
+/* Gradient headline helper — now a plain solid color (kept for compat) */
 .linear-gradient-text {
-  background: linear-gradient(180deg, #ffffff 0%, rgba(255, 255, 255, 0.6) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.light .linear-gradient-text {
-  background: linear-gradient(180deg, #0f172a 0%, rgba(15, 23, 42, 0.6) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: var(--text-primary);
 }
 
 /* Skeleton shimmer for loading states */
@@ -123,6 +116,16 @@
   animation: devpilot-shimmer 1.4s ease infinite;
 }
 
+/* Indeterminate progress bar (unknown-duration tasks — no fake percentages) */
+@keyframes devpilot-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
 /* Skip link for keyboard users */
 .skip-link {
   position: absolute;
@@ -130,9 +133,9 @@
   top: 0;
   z-index: 100;
   padding: 0.6rem 1rem;
-  border-radius: 0 0 0.75rem 0;
-  background: #22d3ee;
-  color: #020617;
+  border-radius: 0 0 0.5rem 0;
+  background: var(--accent);
+  color: var(--accent-contrast);
   font-size: 0.75rem;
   font-weight: 700;
 }

@@ -15,7 +15,7 @@ export function LoadingSkeleton({
       role="status"
       aria-live="polite"
       aria-label={label}
-      className="glass-panel rounded-3xl p-6 space-y-3"
+      className="glass-panel rounded-lg p-6 space-y-3"
     >
       <span className="sr-only">{label}</span>
       {Array.from({ length: lines }).map((_, i) => (
@@ -39,7 +39,7 @@ export function ErrorBlock({
   return (
     <div
       role="alert"
-      className="p-5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs space-y-3"
+      className="p-5 rounded-md bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs space-y-3"
     >
       <div className="flex items-center gap-2 font-bold">
         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
@@ -69,7 +69,7 @@ export function EmptyBlock({
   hint?: string;
 }) {
   return (
-    <div className="p-8 text-center glass-panel rounded-3xl space-y-2">
+    <div className="p-8 text-center glass-panel rounded-lg space-y-2">
       <Inbox className="w-8 h-8 text-slate-500 mx-auto" />
       <h3 className="text-sm font-bold text-white">{title}</h3>
       {hint && <p className="text-xs text-slate-400">{hint}</p>}

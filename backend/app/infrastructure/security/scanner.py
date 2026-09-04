@@ -72,17 +72,6 @@ class SecurityScannerService:
             "source": "Semgrep AST Security Rule",
         },
         {
-            "id": "SEC-006",
-            "type": "CSRF Vulnerability",
-            "pattern": r"(?i)(@app\.post|app\.post|router\.post).*?(?!.*csrf)",
-            "severity": SeverityLevel.MEDIUM,
-            "risk_score": 6.0,
-            "title": "Missing CSRF Protection",
-            "description": "State-changing POST route missing explicit CSRF validation token.",
-            "recommendation": "Enforce Anti-CSRF token validation or samesite cookie policies.",
-            "source": "Semgrep Rules Engine",
-        },
-        {
             "id": "SEC-007",
             "type": "Unsafe eval() Execution",
             "pattern": r"\b(eval\(|exec\(|Function\()",
@@ -97,9 +86,9 @@ class SecurityScannerService:
 
     # Vulnerable dependency catalog rules
     KNOWN_VULNERABLE_PACKAGES: list[dict[str, Any]] = [
-        {"name": "express", "version_prefix": "4.16.", "cve": "CVE-2019-10760", "severity": SeverityLevel.HIGH, "risk": 7.5, "rec": "Upgrade express to version 4.17.1 or higher.", "source": "npm audit / Trivy DB"},
-        {"name": "lodash", "version_prefix": "4.17.11", "cve": "CVE-2019-10744", "severity": SeverityLevel.CRITICAL, "risk": 9.1, "rec": "Upgrade lodash to version 4.17.21 or higher.", "source": "npm audit / Trivy DB"},
-        {"name": "requests", "version_prefix": "2.20.", "cve": "CVE-2018-18074", "severity": SeverityLevel.MEDIUM, "risk": 5.5, "rec": "Upgrade requests to version 2.22.0 or higher.", "source": "Pip Audit / Trivy DB"},
+        {"name": "express", "version_prefix": "4.16.", "cve": "CVE-2019-10760", "severity": SeverityLevel.HIGH, "risk": 7.5, "rec": "Upgrade express to version 4.17.1 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
+        {"name": "lodash", "version_prefix": "4.17.11", "cve": "CVE-2019-10744", "severity": SeverityLevel.CRITICAL, "risk": 9.1, "rec": "Upgrade lodash to version 4.17.21 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
+        {"name": "requests", "version_prefix": "2.20.", "cve": "CVE-2018-18074", "severity": SeverityLevel.MEDIUM, "risk": 5.5, "rec": "Upgrade requests to version 2.22.0 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
     ]
 
     @classmethod
@@ -177,6 +166,43 @@ class SecurityScannerService:
                             )
                         )
 
+        # 2b. File-level CSRF note (honest heuristic, at most one finding).
+        # Per-line CSRF detection is unreliable, so check once across all
+        # fetched files: POST routes present but no CSRF token reference.
+        _post_route_re = re.compile(
+            r"@app\.(post|put|patch|delete)|router\.(post|put|patch|delete)|\.post\(|methods\s*=\s*\[[^\]]*POST"
+        )
+        _post_files = [
+            fp for fp, _content in file_contents_map.items()
+            if _post_route_re.search(_content)
+        ]
+        _mentions_csrf = any(
+            "csrf" in _content.lower() for _content in file_contents_map.values()
+        )
+        if _post_files and not _mentions_csrf:
+            _note = ("State-changing routes exist but no CSRF token reference "
+                "was found in fetched files.")
+            findings.append(
+                SecurityFinding(
+                    id=f"SEC-{uuid.uuid4().hex[:8]}",
+                    issue_type="Unverified CSRF Protection",
+                    rule_triggered="HEURISTIC-CSRF-01",
+                    severity=SeverityLevel.LOW,
+                    title="CSRF protection not verified",
+                    description=_note,
+                    explanation=_note,
+                    affected_file=_post_files[0],
+                    line_number=1,
+                    snippet="POST route without observable CSRF token reference",
+                    evidence="; ".join(_post_files[:5]),
+                    recommendation=("Confirm CSRF defenses (anti-CSRF tokens or SameSite "
+                        "cookies) if the app uses cookie sessions.") ,
+                    fix_recommendation="Confirm CSRF defenses for cookie-session routes.",
+                    confidence="LOW",
+                    risk_score=3.0,
+                    scanner_source="Heuristic (file-level note, not per-route proof)",
+                )
+            )
         # 3. Calculate Counts & Deterministic Security Pillar Score
         critical_count = sum(1 for f in findings if f.severity == SeverityLevel.CRITICAL)
         high_count = sum(1 for f in findings if f.severity == SeverityLevel.HIGH)

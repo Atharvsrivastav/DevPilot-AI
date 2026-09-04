@@ -1,129 +1,159 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   ShieldAlert,
   Cpu,
   GitPullRequest,
   Sparkles,
-  MessageSquare,
-  AlertTriangle,
+  Package,
+  FlaskConical,
+  Gauge,
   FileCode,
-  Send,
-  CheckCircle2,
-  Code2,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/config/api";
 
-export function AnalysisDetailTabs() {
-  const [activeTab, setActiveTab] = useState<"security" | "quality" | "architecture" | "reviewer" | "chat">("security");
-  const [chatQuestion, setChatQuestion] = useState("");
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string; source?: string }>>([
-    {
-      role: "assistant",
-      content: "Hello! I am your DevPilot RAG Assistant. Ask me anything about the codebase structure, architecture, or security findings.",
-      source: "backend/app/main.py",
-    },
-  ]);
+interface Finding {
+  id?: string;
+  severity?: string;
+  title?: string;
+  issue_type?: string;
+  type?: string;
+  description?: string;
+  affected_file?: string;
+  file_path?: string;
+  line_number?: number;
+  line?: number;
+  recommendation?: string;
+  fix_recommendation?: string;
+  scanner_source?: string;
+  confidence?: string;
+}
 
-  const [realData, setRealData] = useState<any>(null);
+type AnyRecord = Record<string, any>;
 
-  useEffect(() => {
-    const fetchLatest = async () => {
-      try {
-        const baseUrl = getApiBaseUrl();
-        const res = await fetch(`${baseUrl}/api/v1/analysis/latest`, {
-          headers: { Authorization: "Bearer mock_jwt_token_demo" },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setRealData(data);
-        }
-      } catch (e) {
-        console.log("No analysis data loaded yet");
-      }
-    };
-    fetchLatest();
-  }, []);
+function fileOf(f: Finding): string {
+  return f.affected_file || f.file_path || "unknown file";
+}
+function lineOf(f: Finding): number {
+  return f.line_number ?? f.line ?? 1;
+}
+function fixOf(f: Finding): string {
+  return f.recommendation || f.fix_recommendation || "See finding details.";
+}
 
-  const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatQuestion.trim()) return;
+function FindingCard({ f }: { f: Finding }) {
+  const sev = (f.severity || "INFO").toUpperCase();
+  const sevStyle =
+    sev === "CRITICAL"
+      ? "bg-rose-500/15 text-rose-300 border-rose-500/30"
+      : sev === "HIGH"
+        ? "bg-orange-500/15 text-orange-300 border-orange-500/30"
+        : sev === "MEDIUM"
+          ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+          : "bg-slate-500/15 text-slate-300 border-slate-500/30";
+  return (
+    <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border ${sevStyle}`}>
+            {sev}
+          </span>
+          <span className="text-sm font-semibold text-white truncate">
+            {f.title || f.issue_type || f.type || "Finding"}
+          </span>
+        </div>
+        {f.id && <span className="text-[11px] font-mono text-slate-500">{f.id}</span>}
+      </div>
+      <div className="text-xs font-mono text-cyan-300/90 flex items-center gap-1.5">
+        <FileCode className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+        <span className="truncate">{fileOf(f)}:L{lineOf(f)}</span>
+      </div>
+      {f.description && <p className="text-xs text-slate-400 leading-relaxed">{f.description}</p>}
+      <div className="text-xs text-emerald-300/90 bg-emerald-500/5 p-2.5 rounded-lg border border-emerald-500/15">
+        <strong>Recommendation:</strong> {fixOf(f)}
+      </div>
+      {f.scanner_source && (
+        <div className="text-[11px] font-mono text-slate-500">
+          Source: {f.scanner_source}
+          {f.confidence ? ` · Confidence: ${f.confidence}` : ""}
+        </div>
+      )}
+    </div>
+  );
+}
 
-    const userQ = chatQuestion;
-    setChatMessages((prev) => [...prev, { role: "user", content: userQ }]);
-    setChatQuestion("");
+function ModuleState({ section, children }: { section: AnyRecord | null | undefined; children: React.ReactNode }) {
+  if (!section || section.status === "failed") {
+    return (
+      <div className="p-5 text-xs font-mono text-slate-500 text-center rounded-xl bg-white/[0.02] border border-white/5">
+        {section?.error
+          ? `This check failed: ${section.error}`
+          : "This check did not run for this analysis."}
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
 
-    try {
-      const baseUrl = getApiBaseUrl();
-      const res = await fetch(`${baseUrl}/api/v1/chat/query`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer mock_jwt_token_demo",
-        },
-        body: JSON.stringify({ query: userQ }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.answer || "Query answered from codebase RAG context.",
-            source: data.context_snippets?.[0]?.source || "backend/app/main.py",
-          },
-        ]);
-        return;
-      }
-    } catch (e) {
-      // Fallback response
-    }
+function ReasonList({ items }: { items: string[] }) {
+  if (!items?.length) return null;
+  return (
+    <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
+      {items.map((r, i) => (
+        <li key={i}>{r}</li>
+      ))}
+    </ul>
+  );
+}
 
-    setTimeout(() => {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Regarding your question "${userQ}": The codebase implements Clean Architecture isolating domain entities in app/domain/models, FastAPI controllers in app/api/routes, and scanners in app/infrastructure.`,
-          source: "backend/app/main.py",
-        },
-      ]);
-    }, 500);
-  };
+export function AnalysisDetailTabs({ record }: { record: AnyRecord | null }) {
+  const [activeTab, setActiveTab] = useState<
+    "security" | "quality" | "architecture" | "supply" | "insights"
+  >("security");
 
-  const securityFindings = realData?.security?.findings || [];
-  const qualityFindings = realData?.quality?.findings || [];
+  const security: AnyRecord | null = record?.security ?? null;
+  const quality: AnyRecord | null = record?.quality ?? null;
+  const architecture: AnyRecord | null = record?.architecture ?? null;
+  const dependencies: AnyRecord | null = record?.dependencies ?? null;
+  const testing: AnyRecord | null = record?.testing ?? null;
+  const performance: AnyRecord | null = record?.performance_signals ?? null;
+  const ai: AnyRecord | null = record?.ai_reviewer ?? null;
+
+  const secFindings: Finding[] = security?.findings ?? [];
+  const qualFindings: Finding[] = quality?.findings ?? [];
+
+  if (!record) return null;
 
   const tabs = [
-    { id: "security", label: "Security Vulnerabilities", icon: ShieldAlert, count: `${securityFindings.length}` },
-    { id: "quality", label: "Code Quality & Smells", icon: Cpu, count: `${qualityFindings.length}` },
-    { id: "architecture", label: "Architecture Graph", icon: GitPullRequest, count: null },
-    { id: "reviewer", label: "AI Code Reviewer", icon: Sparkles, count: null },
-    { id: "chat", label: "Repository Q&A Chat (RAG)", icon: MessageSquare, count: null },
-  ];
+    { id: "security", label: "Security", icon: ShieldAlert, count: secFindings.length },
+    { id: "quality", label: "Code quality", icon: Cpu, count: qualFindings.length },
+    { id: "architecture", label: "Architecture", icon: GitPullRequest, count: null },
+    { id: "supply", label: "Dependencies & Tests", icon: Package, count: null },
+    { id: "insights", label: "AI insights", icon: Sparkles, count: null },
+  ] as const;
 
   return (
-    <div className="glass-panel p-6 rounded-3xl space-y-6">
-      {/* Tab Controls */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
+    <div className="glass-panel p-6 rounded-lg space-y-6">
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-4" role="tablist">
         {tabs.map((t) => {
           const IconComp = t.icon;
           const isActive = activeTab === t.id;
           return (
             <button
               key={t.id}
-              onClick={() => setActiveTab(t.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                 isActive
-                  ? "bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20"
+                  ? "bg-slate-100 text-slate-950"
                   : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
               }`}
             >
               <IconComp className="w-3.5 h-3.5" />
               <span>{t.label}</span>
-              {t.count && (
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${isActive ? 'bg-slate-950 text-white' : 'bg-white/10 text-slate-300'}`}>
+              {typeof t.count === "number" && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${isActive ? "bg-slate-950 text-white" : "bg-white/10 text-slate-300"}`}>
                   {t.count}
                 </span>
               )}
@@ -132,178 +162,162 @@ export function AnalysisDetailTabs() {
         })}
       </div>
 
-      {/* Tab 1: Security Vulnerabilities */}
       {activeTab === "security" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-rose-400" />
-              Detected Security Vulnerabilities & Exposed Secrets
-            </h4>
-            <span className="text-xs text-rose-400 font-mono font-semibold">Total Findings: {securityFindings.length}</span>
-          </div>
-
+        <ModuleState section={security}>
           <div className="space-y-3">
-            {securityFindings.map((issue: any) => (
-              <div key={issue.id} className="p-4 rounded-2xl bg-slate-950/60 border border-white/5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${
-                        issue.severity === "CRITICAL"
-                          ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                          : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                      }`}
-                    >
-                      {issue.severity}
-                    </span>
-                    <span className="text-sm font-bold text-white">{issue.title}</span>
-                  </div>
-                  <span className="text-xs font-mono text-slate-500">{issue.id}</span>
-                </div>
-                <div className="text-xs font-mono text-cyan-400 flex items-center gap-1.5">
-                  <FileCode className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{issue.affected_file}:L{issue.line_number || 1}</span>
-                </div>
-                <p className="text-xs text-slate-400">{issue.description}</p>
-                <div className="text-xs font-medium text-emerald-400 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-                  <strong>Remediation:</strong> {issue.recommendation}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: Code Quality */}
-      {activeTab === "quality" && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-cyan-400" />
-            Code Quality & AST Cyclomatic Complexity Report
-          </h4>
-
-          <div className="space-y-3">
-            {qualityFindings.map((item: any, idx: number) => (
-              <div key={idx} className="p-4 rounded-2xl bg-slate-950/60 border border-white/5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">{item.issue_type}</span>
-                  <span className="text-xs font-mono text-slate-400">Line {item.line_number || 1}</span>
-                </div>
-                <div className="text-sm font-bold text-white">{item.title}</div>
-                <div className="text-xs font-mono text-slate-400">{item.file_path}</div>
-                <p className="text-xs text-slate-300 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                  <strong>Suggestion:</strong> {item.recommendation}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Architecture Graph */}
-      {activeTab === "architecture" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <GitPullRequest className="w-4 h-4 text-indigo-400" />
-              Detected Architecture: {realData?.architecture?.detected_pattern || "Clean Architecture"}
-            </h4>
-            <span className="text-xs font-mono text-emerald-400">
-              Modularity Score: {realData?.architecture?.modularity_score || 90.0}/100
-            </span>
-          </div>
-
-          <div className="p-6 rounded-2xl bg-slate-950 border border-white/10 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center font-mono">
-              <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 space-y-1">
-                <div className="text-xs font-bold uppercase">Presentation</div>
-                <div className="text-xs text-slate-300">FastAPI / Next.js</div>
-              </div>
-              <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 space-y-1">
-                <div className="text-xs font-bold uppercase">Use Cases</div>
-                <div className="text-xs text-slate-300">Orchestrator</div>
-              </div>
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 space-y-1">
-                <div className="text-xs font-bold uppercase">Domain Models</div>
-                <div className="text-xs text-slate-300">Entities & Interfaces</div>
-              </div>
-              <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 space-y-1">
-                <div className="text-xs font-bold uppercase">Infrastructure</div>
-                <div className="text-xs text-slate-300">Database & APIs</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: AI Code Reviewer */}
-      {activeTab === "reviewer" && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            Senior Staff AI Code Review Report
-          </h4>
-
-          <div className="p-5 rounded-2xl bg-slate-950/60 border border-white/5 space-y-4 text-xs">
-            <div className="space-y-1">
-              <h5 className="font-bold text-cyan-400 uppercase text-[11px]">1. Repository Analysis Summary</h5>
-              <p className="text-slate-300 leading-relaxed">
-                Repository evaluation completed cleanly across Security, Quality, Architecture, and Documentation scanners.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 5: Repository Chat (RAG) */}
-      {activeTab === "chat" && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-cyan-400" />
-            Ask Repository Questions (Retrieval-Augmented Generation)
-          </h4>
-
-          <div className="h-64 overflow-y-auto p-4 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
-            {chatMessages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`p-3.5 rounded-2xl max-w-xl text-xs space-y-1 ${
-                  msg.role === "user"
-                    ? "ml-auto bg-cyan-500/20 text-cyan-200 border border-cyan-500/30"
-                    : "mr-auto bg-white/5 text-slate-200 border border-white/10"
-                }`}
-              >
-                <div className="font-semibold text-[10px] uppercase text-slate-400">
-                  {msg.role === "user" ? "You" : "DevPilot RAG AI"}
-                </div>
-                <p className="leading-relaxed">{msg.content}</p>
-                {msg.source && (
-                  <div className="text-[10px] font-mono text-cyan-400 pt-1 flex items-center gap-1">
-                    <Code2 className="w-3 h-3 text-slate-400" />
-                    <span>Source: {msg.source}</span>
-                  </div>
+            {secFindings.length === 0 ? (
+              <div className="p-5 text-xs text-slate-400 text-center rounded-xl bg-white/[0.02]">
+                No issues detected by current checks.
+                {security?.raw_metrics?.scanned_files != null && (
+                  <span className="block mt-1 font-mono text-slate-500">
+                    {security.raw_metrics.scanned_files} file(s) scanned.
+                  </span>
                 )}
               </div>
-            ))}
+            ) : (
+              secFindings.map((f, i) => <FindingCard key={f.id || i} f={f} />)
+            )}
           </div>
+        </ModuleState>
+      )}
 
-          <form onSubmit={handleSendChat} className="flex gap-2">
-            <input
-              type="text"
-              value={chatQuestion}
-              onChange={(e) => setChatQuestion(e.target.value)}
-              placeholder="e.g. How are database sessions managed in Clean Architecture?"
-              className="flex-1 px-4 py-3 rounded-xl bg-slate-950/80 border border-white/10 text-white text-xs font-mono focus:border-cyan-400 focus:outline-none transition-colors"
-            />
-            <button
-              type="submit"
-              className="px-5 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-all shadow-lg shadow-cyan-500/20 flex items-center gap-1.5"
-            >
-              <span>Ask</span>
-              <Send className="w-3.5 h-3.5" />
-            </button>
-          </form>
+      {activeTab === "quality" && (
+        <ModuleState section={quality}>
+          <div className="space-y-3">
+            {qualFindings.length === 0 ? (
+              <div className="p-5 text-xs text-slate-400 text-center rounded-xl bg-white/[0.02]">
+                No issues detected by current checks.
+              </div>
+            ) : (
+              qualFindings.map((f, i) => <FindingCard key={f.id || i} f={f} />)
+            )}
+          </div>
+        </ModuleState>
+      )}
+
+      {activeTab === "architecture" && (
+        <ModuleState section={architecture}>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+              <span className="text-slate-400">
+                Detected pattern:{" "}
+                <strong className="text-white">{architecture?.detected_pattern || "Undetermined"}</strong>
+              </span>
+              {architecture?.modularity_score != null && (
+                <span className="font-mono text-slate-400">
+                  Modularity: <span className="text-cyan-300">{architecture.modularity_score}/100</span>
+                </span>
+              )}
+              {architecture?.coupling_score != null && (
+                <span className="font-mono text-slate-400">
+                  Coupling: <span className="text-cyan-300">{architecture.coupling_score}/100</span>
+                </span>
+              )}
+            </div>
+            {architecture?.summary && (
+              <p className="text-xs text-slate-400 leading-relaxed">{architecture.summary}</p>
+            )}
+            {Array.isArray(architecture?.folder_graph) && architecture.folder_graph.length > 0 ? (
+              <div>
+                <h5 className="text-xs font-semibold text-slate-300 mb-2">
+                  Module structure (from repository tree)
+                </h5>
+                <div className="max-h-64 overflow-y-auto p-3 rounded-xl bg-slate-950/80 border border-white/10 font-mono text-[11px] text-slate-400 space-y-0.5">
+                  {architecture.folder_graph.slice(0, 60).map((d: string, i: number) => (
+                    <div key={i} className="truncate">📁 {d}</div>
+                  ))}
+                  {architecture.folder_graph.length > 60 && (
+                    <div className="text-slate-600">+ {architecture.folder_graph.length - 60} more</div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-5 text-xs text-slate-500 text-center rounded-xl bg-white/[0.02]">
+                No module structure available for this analysis.
+              </div>
+            )}
+          </div>
+        </ModuleState>
+      )}
+
+      {activeTab === "supply" && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { title: "Dependencies", icon: Package, data: dependencies },
+            { title: "Testing", icon: FlaskConical, data: testing },
+            { title: "Performance signals", icon: Gauge, data: performance, note: "Static signals only — no runtime benchmarking." },
+          ].map((c) => {
+            const Icon = c.icon;
+            return (
+              <div key={c.title} className="p-4 rounded-md bg-slate-950/60 border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-white flex items-center gap-2">
+                    <Icon className="w-4 h-4 text-cyan-400" />
+                    {c.title}
+                  </h5>
+                  {typeof c.data?.score === "number" && (
+                    <span className="text-sm font-black font-mono text-white">{c.data.score}</span>
+                  )}
+                </div>
+                {c.data && c.data.status === "completed" ? (
+                  <>
+                    <ReasonList items={c.data.reasons || []} />
+                    {Array.isArray(c.data.evidence) && c.data.evidence.length > 0 && (
+                      <div className="font-mono text-[11px] text-slate-500 space-y-0.5 max-h-32 overflow-y-auto">
+                        {c.data.evidence.slice(0, 12).map((e: string, i: number) => (
+                          <div key={i} className="truncate">· {e}</div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">Not available for this analysis.</p>
+                )}
+                {c.note && <p className="text-[11px] font-mono text-slate-600">{c.note}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {activeTab === "insights" && (
+        <div className="space-y-4 text-xs">
+          {!ai || ai.status === "unavailable" || ai.status === "failed" ? (
+            <div className="p-5 text-xs text-slate-400 text-center rounded-xl bg-white/[0.02]">
+              AI insights unavailable
+              {ai?.error ? `: ${ai.error}` : " (no LLM key configured)"}. Deterministic
+              results above are unaffected.
+            </div>
+          ) : (
+            <div className="p-5 rounded-md bg-slate-950/60 border border-white/5 space-y-4">
+              <div className="text-[11px] font-mono text-amber-300/80 uppercase tracking-wider">
+                AI-generated — interpretive, verify against evidence
+              </div>
+              {ai.repository_summary && (
+                <p className="text-slate-300 leading-relaxed">{ai.repository_summary}</p>
+              )}
+              {Array.isArray(ai.improvement_suggestions) && ai.improvement_suggestions.length > 0 && (
+                <div className="space-y-1">
+                  <h5 className="font-bold text-cyan-300 uppercase text-[11px]">Suggestions</h5>
+                  <ul className="text-slate-400 space-y-1 list-disc list-inside">
+                    {ai.improvement_suggestions.map((s: string, i: number) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(ai.pr_review_comments) && ai.pr_review_comments.length > 0 && (
+                <div className="space-y-1">
+                  <h5 className="font-bold text-cyan-300 uppercase text-[11px]">Review notes</h5>
+                  <ul className="text-slate-400 space-y-1 list-disc list-inside">
+                    {ai.pr_review_comments.map((s: string, i: number) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
