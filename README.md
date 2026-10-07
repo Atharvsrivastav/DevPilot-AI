@@ -88,6 +88,7 @@ docker-compose up --build -d
 - **FastAPI API & OpenAPI Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **PostgreSQL Database**: `localhost:5432`
 
+
 ---
 
 ## 🛠️ Development & Quality Controls
