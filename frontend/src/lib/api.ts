@@ -1,13 +1,29 @@
 import { getApiBaseUrl } from "@/config/api";
 
+const ACCESS_TOKEN_KEY = "devpilot-token";
+const REFRESH_TOKEN_KEY = "devpilot-refresh-token";
+
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+  token_type?: string;
+}
+
 /**
- * Stored user token (from a real login flow). Returns null when absent —
- * the dev backend accepts unauthenticated requests outside production.
+ * Stored user token (from a real login flow). Returns null when absent.
  * No demo/mock token is ever hardcoded or sent.
  */
 export function getAuthToken(): string | null {
   try {
-    return localStorage.getItem("devpilot-token");
+    return localStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function getRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -15,8 +31,28 @@ export function getAuthToken(): string | null {
 
 export function setAuthToken(token: string | null) {
   try {
-    if (token) localStorage.setItem("devpilot-token", token);
-    else localStorage.removeItem("devpilot-token");
+    if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    else localStorage.removeItem(ACCESS_TOKEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function setAuthTokens(tokens: AuthTokens) {
+  setAuthToken(tokens.access_token);
+  try {
+    if (tokens.refresh_token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
+    }
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function clearAuthTokens() {
+  setAuthToken(null);
+  try {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
   } catch {
     /* storage unavailable */
   }
@@ -37,10 +73,44 @@ interface ApiFetchOptions extends RequestInit {
   auth?: boolean;
 }
 
-/** Central fetch wrapper: base URL, optional auth, timeout, JSON errors. */
-export async function apiFetch<T>(
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** Rotate the refresh token and store the new pair. At most one call at a time. */
+async function refreshSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return false;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) {
+        clearAuthTokens();
+        return false;
+      }
+      const data = (await res.json()) as AuthTokens;
+      if (!data.access_token || !data.refresh_token) {
+        clearAuthTokens();
+        return false;
+      }
+      setAuthTokens(data);
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function apiFetchInternal<T>(
   path: string,
-  options: ApiFetchOptions = {}
+  options: ApiFetchOptions,
+  retried: boolean
 ): Promise<T> {
   const { timeoutMs = 30000, auth = true, headers, ...rest } = options;
   const controller = new AbortController();
@@ -59,6 +129,17 @@ export async function apiFetch<T>(
     });
 
     if (!res.ok) {
+      // A single transparent retry after rotating an expired access token.
+      const replayable =
+        rest.body === undefined ||
+        rest.body === null ||
+        typeof rest.body === "string";
+      if (res.status === 401 && auth && !retried && replayable) {
+        if (await refreshSession()) {
+          return apiFetchInternal<T>(path, options, true);
+        }
+      }
+
       let detail = `Request failed (${res.status})`;
       let payload: unknown = null;
       try {
@@ -94,6 +175,14 @@ export async function apiFetch<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Central fetch wrapper: base URL, optional auth, timeout, JSON errors. */
+export async function apiFetch<T>(
+  path: string,
+  options: ApiFetchOptions = {}
+): Promise<T> {
+  return apiFetchInternal<T>(path, options, false);
 }
 
 /** Parse `owner/name` from a pasted GitHub URL or shorthand. */
