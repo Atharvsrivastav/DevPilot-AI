@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.config import settings
 from app.infrastructure.architecture.analyzer import ArchitectureAnalyzerService
 from app.infrastructure.documentation.scanner import DocumentationScannerService
 from app.infrastructure.github.repository_service import (
@@ -40,11 +41,53 @@ ANALYSIS_STORE: dict[str, dict[str, Any]] = {}
 # Repository-specific cache: analysis:{owner}:{repo}:{commit_sha or 'latest'} -> analysis_id
 REPO_ANALYSIS_CACHE: dict[str, str] = {}
 
+MAX_STORED_ANALYSES = 200
+_ACTIVE_STATUSES = {
+    "QUEUED",
+    "FETCHING",
+    "SCANNING",
+    "CALCULATING",
+    "AI_SUMMARIZING",
+}
+_TASKS: set[asyncio.Task] = set()
+_ANALYSIS_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_analysis_semaphore() -> asyncio.Semaphore:
+    global _ANALYSIS_SEMAPHORE
+    if _ANALYSIS_SEMAPHORE is None:
+        _ANALYSIS_SEMAPHORE = asyncio.Semaphore(settings.MAX_CONCURRENT_ANALYSES)
+    return _ANALYSIS_SEMAPHORE
+
+
+def _prune_store() -> None:
+    """Drop the oldest completed analyses once the in-memory store grows."""
+    if len(ANALYSIS_STORE) <= MAX_STORED_ANALYSES:
+        return
+    finished = sorted(
+        (
+            record
+            for record in ANALYSIS_STORE.values()
+            if record.get("status") not in _ACTIVE_STATUSES
+        ),
+        key=lambda r: r.get("created_at", ""),
+    )
+    for record in finished:
+        if len(ANALYSIS_STORE) <= MAX_STORED_ANALYSES:
+            break
+        analysis_id = record.get("analysis_id")
+        if analysis_id:
+            ANALYSIS_STORE.pop(analysis_id, None)
+    valid_ids = set(ANALYSIS_STORE)
+    for key, analysis_id in list(REPO_ANALYSIS_CACHE.items()):
+        if analysis_id not in valid_ids:
+            REPO_ANALYSIS_CACHE.pop(key, None)
+
 
 def _matches_repo(record: dict[str, Any], user_id: str, owner: str, repo: str) -> bool:
     r = record.get("repository", {})
     return (
-        (record.get("user_id") == user_id or user_id == "user_demo_01" or record.get("user_id") == "user_demo_01")
+        record.get("user_id") == user_id
         and r.get("owner", "").lower() == owner.lower()
         and r.get("name", "").lower() == repo.lower()
     )
@@ -97,6 +140,22 @@ class AnalysisPipelineOrchestrator:
         """
         owner, name = parse_github_url(repo_url)
         branch = (branch or "main").strip() or "main"
+        if len(branch) > 255:
+            raise GitHubError("INVALID_BRANCH", "Branch name is too long.", 400)
+
+        queued_or_running = sum(
+            1
+            for record in ANALYSIS_STORE.values()
+            if record.get("status") in _ACTIVE_STATUSES
+        )
+        if queued_or_running >= settings.MAX_QUEUED_ANALYSES:
+            raise GitHubError(
+                "QUEUE_FULL",
+                "The analysis queue is full. Please try again shortly.",
+                429,
+            )
+
+        _prune_store()
         analysis_id = f"anl_{uuid.uuid4().hex[:12]}"
         now_str = datetime.now(UTC).isoformat()
 
@@ -142,10 +201,22 @@ class AnalysisPipelineOrchestrator:
             "error_message": None,
         }
         logger.info(f"Queued analysis {analysis_id} for {owner}/{name} (user {user_id})")
-        asyncio.create_task(
-            cls._execute_pipeline(analysis_id, owner, name, branch)
+        task = asyncio.create_task(
+            cls._run_guarded(analysis_id, owner, name, branch)
         )
+        # Hold a strong reference until the task finishes; otherwise the event
+        # loop may garbage-collect a task that is still running.
+        _TASKS.add(task)
+        task.add_done_callback(_TASKS.discard)
         return analysis_id
+
+    @classmethod
+    async def _run_guarded(
+        cls, analysis_id: str, owner: str, name: str, branch: str
+    ) -> None:
+        """Run at most MAX_CONCURRENT_ANALYSES pipelines at once."""
+        async with _get_analysis_semaphore():
+            await cls._execute_pipeline(analysis_id, owner, name, branch)
 
     # ------------------------------------------------------------------
     # Pipeline
@@ -377,7 +448,10 @@ class AnalysisPipelineOrchestrator:
                 record["ai_reviewer"] = ai_report.model_dump()
             except Exception as e:
                 logger.warning(f"[{analysis_id}] AI insights unavailable: {e}")
-                record["ai_reviewer"] = {"status": "unavailable", "error": str(e)}
+                record["ai_reviewer"] = {
+                    "status": "unavailable",
+                    "error": "AI insights are unavailable for this analysis.",
+                }
                 record["skipped_modules"].append("ai_reviewer")
 
             duration = round(time.time() - start_time, 2)
@@ -398,7 +472,12 @@ class AnalysisPipelineOrchestrator:
 
         except Exception as e:  # defensive: never leave a run stuck
             logger.error(f"[{analysis_id}] Pipeline error: {e}", exc_info=True)
-            cls._fail(record, start_time, "PIPELINE_ERROR", f"Analysis failed: {e}")
+            cls._fail(
+                record,
+                start_time,
+                "PIPELINE_ERROR",
+                f"Analysis failed unexpectedly. Reference: {analysis_id}",
+            )
 
     # ------------------------------------------------------------------
     # Scanner wrappers (each isolated; failure skips only its own module)
@@ -423,7 +502,11 @@ class AnalysisPipelineOrchestrator:
         except Exception as e:
             logger.error(f"Security scanner failed: {e}")
             record["skipped_modules"].append("security")
-            return None, {"pillar": "security", "status": "failed", "error": str(e)}
+            return None, {
+                "pillar": "security",
+                "status": "failed",
+                "error": "Security module failed to run.",
+            }
 
     @staticmethod
     def _run_quality(repo_url, files_map, record):
@@ -446,7 +529,11 @@ class AnalysisPipelineOrchestrator:
         except Exception as e:
             logger.error(f"Quality scanner failed: {e}")
             record["skipped_modules"].append("quality")
-            return None, {"pillar": "quality", "status": "failed", "error": str(e)}
+            return None, {
+                "pillar": "quality",
+                "status": "failed",
+                "error": "Quality module failed to run.",
+            }
 
     @staticmethod
     def _run_architecture(repo_url, tree_paths, record):
@@ -470,7 +557,11 @@ class AnalysisPipelineOrchestrator:
         except Exception as e:
             logger.error(f"Architecture analyzer failed: {e}")
             record["skipped_modules"].append("architecture")
-            return None, {"pillar": "architecture", "status": "failed", "error": str(e)}
+            return None, {
+                "pillar": "architecture",
+                "status": "failed",
+                "error": "Architecture module failed to run.",
+            }
 
     @staticmethod
     def _run_documentation(files_map, record):
@@ -488,7 +579,11 @@ class AnalysisPipelineOrchestrator:
         except Exception as e:
             logger.error(f"Documentation scanner failed: {e}")
             record["skipped_modules"].append("documentation")
-            return None, {"pillar": "documentation", "status": "failed", "error": str(e)}
+            return None, {
+                "pillar": "documentation",
+                "status": "failed",
+                "error": "Documentation module failed to run.",
+            }
 
     @staticmethod
     def _fail(record: dict[str, Any], start_time: float, code: str, message: str) -> None:

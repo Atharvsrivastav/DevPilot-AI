@@ -16,21 +16,30 @@ from app.api.routes import (
     security,
 )
 from app.core.config import settings
+from app.core.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 
+# Interactive docs are useful in development but expose the full API surface
+# in production, so they are disabled there.
 app = FastAPI(
     title="DevPilot AI Backend API",
     description="Enterprise-grade AI-powered platform for GitHub repository analysis",
     version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
 
-# CORS: explicit origins. Wildcard + credentials is rejected by browsers,
-# so production must list real frontend origins via CORS_EXTRA_ORIGINS.
+# Middleware order: the last added middleware runs first. CORS is outermost so
+# rate-limit and error responses still receive the appropriate CORS headers.
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS: explicit origins. Bearer tokens are used instead of cookies, so
+# credentialed requests are not required.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -50,11 +59,11 @@ app.include_router(chat.router, prefix="/api/v1")
 
 def _health_payload() -> dict:
     """Shared liveness payload for Docker, Render & Kubernetes probes."""
+    # Keep the public probe minimal: environment/version details are not needed
+    # by clients or load balancers and only aid fingerprinting.
     return {
         "status": "healthy",
         "message": "DevPilot AI Backend API is Live",
-        "environment": settings.ENVIRONMENT,
-        "version": "0.1.0",
     }
 
 

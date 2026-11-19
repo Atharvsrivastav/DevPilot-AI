@@ -9,12 +9,11 @@ from app.core.security import decode_token
 security_bearer = HTTPBearer(auto_error=False)
 
 DEMO_USER_ID = "user_demo_01"
-DEMO_TOKEN = "mock_jwt_token_demo"
 
 
 def _demo_fallback_allowed() -> bool:
-    """Demo-token bypass is only permitted outside production."""
-    return not settings.is_production
+    """Demo access requires an explicit opt-in and is refused in production."""
+    return settings.ALLOW_DEMO_AUTH and not settings.is_production
 
 
 async def get_current_user_id(
@@ -31,15 +30,6 @@ async def get_current_user_id(
         )
 
     token = credentials.credentials
-
-    if token == DEMO_TOKEN or token.startswith("mock_"):
-        if _demo_fallback_allowed():
-            return DEMO_USER_ID
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Demo tokens are disabled in production",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
     try:
         payload = decode_token(token)

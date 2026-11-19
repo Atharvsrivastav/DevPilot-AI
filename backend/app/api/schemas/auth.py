@@ -1,6 +1,6 @@
 """Pydantic schemas for authentication and tokens."""
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field
 
 
 class TokenResponse(BaseModel):
@@ -10,7 +10,15 @@ class TokenResponse(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(min_length=16, max_length=8192)
+
+
+class LoginCodeRequest(BaseModel):
+    code: str = Field(min_length=16, max_length=512)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(default=None, min_length=16, max_length=8192)
 
 
 class UserAuthResponse(BaseModel):
@@ -20,7 +28,3 @@ class UserAuthResponse(BaseModel):
     full_name: str | None = None
     avatar_url: str | None = None
     github_user_id: str | None = None
-
-
-class GitHubOAuthCallbackRequest(BaseModel):
-    code: str

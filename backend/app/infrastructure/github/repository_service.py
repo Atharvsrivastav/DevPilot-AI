@@ -8,7 +8,8 @@ import asyncio
 import base64
 import re
 import time
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -38,6 +39,23 @@ _IGNORED_PATH_PARTS = (
 
 # Short-lived metadata cache: github:{owner}/{repo} -> (expires_at, payload)
 _METADATA_CACHE: dict[str, tuple[float, dict]] = {}
+_MAX_METADATA_CACHE = 500
+
+_BAD_PATH_CHARS = ("\\", "\x00", "\n", "\r", "?", "#")
+
+
+def _validate_repo_path(value: str, label: str) -> str:
+    """Reject traversal/control/injection characters in branch and file paths."""
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise GitHubError("INVALID_PATH", f"{label} must not be empty.", 400)
+    if any(char in cleaned for char in _BAD_PATH_CHARS):
+        raise GitHubError("INVALID_PATH", f"{label} contains invalid characters.", 400)
+    if any(part in (".", "..") for part in cleaned.split("/")):
+        raise GitHubError("INVALID_PATH", f"{label} contains an unsafe path segment.", 400)
+    if cleaned.startswith("/"):
+        raise GitHubError("INVALID_PATH", f"{label} must be relative.", 400)
+    return cleaned
 
 
 class GitHubError(Exception):
@@ -86,8 +104,12 @@ def parse_github_url(url: str) -> tuple[str, str]:
     repo = parts[1]
     if repo.endswith(".git"):
         repo = repo[:-4]
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", owner) or not re.fullmatch(
-        r"[A-Za-z0-9_.-]+", repo
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_.-]+", owner)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+", repo)
+        or owner in (".", "..")
+        or repo in (".", "..")
+        or owner.startswith(".")
     ):
         raise GitHubError(
             "INVALID_URL",
@@ -173,6 +195,20 @@ class GitHubRepositoryService:
         if res.status_code != 200:
             raise self._classify_error(res, owner, repo)
         data = res.json()
+        if data.get("private") and not settings.ALLOW_PRIVATE_REPOS:
+            raise GitHubError(
+                "PRIVATE_REPO_DISABLED",
+                "Private repositories are disabled. Use a public repository or "
+                "enable per-user access first.",
+                403,
+            )
+        if len(_METADATA_CACHE) >= _MAX_METADATA_CACHE:
+            now = time.time()
+            for key, (expires_at, _) in list(_METADATA_CACHE.items()):
+                if expires_at <= now:
+                    _METADATA_CACHE.pop(key, None)
+            while len(_METADATA_CACHE) >= _MAX_METADATA_CACHE:
+                _METADATA_CACHE.pop(next(iter(_METADATA_CACHE)), None)
         _METADATA_CACHE[cache_key] = (time.time() + METADATA_CACHE_TTL_SECONDS, data)
         return data
 
@@ -252,12 +288,14 @@ class GitHubRepositoryService:
         self, owner: str, repo: str, branch: str = "main"
     ) -> list[str]:
         """Fetch recursive file tree paths (required — raises GitHubError on failure)."""
+        safe_branch = _validate_repo_path(branch, "branch")
         try:
             async with httpx.AsyncClient(
                 headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
             ) as client:
                 res = await client.get(
-                    f"{self.base_url}/repos/{owner}/{repo}/git/trees/{branch}",
+                    f"{self.base_url}/repos/{owner}/{repo}/git/trees/"
+                    f"{quote(safe_branch, safe='/')}",
                     params={"recursive": "1"},
                 )
         except httpx.HTTPError as e:
@@ -281,13 +319,21 @@ class GitHubRepositoryService:
         self, owner: str, repo: str, branch: str = "main"
     ) -> dict[str, str]:
         """Fetch source text of key files for scanners (concurrent, size-capped)."""
-        tree = await self.get_repository_tree(owner, repo, branch)
-        targets = [
-            p
-            for p in tree
-            if p.endswith(_KEY_EXTENSIONS)
-            and not any(ignored in p for ignored in _IGNORED_PATH_PARTS)
-        ][:MAX_SCAN_FILES]
+        safe_branch = _validate_repo_path(branch, "branch")
+        tree = await self.get_repository_tree(owner, repo, safe_branch)
+        targets: list[str] = []
+        for path in tree:
+            if (
+                path.endswith(_KEY_EXTENSIONS)
+                and not any(ignored in path for ignored in _IGNORED_PATH_PARTS)
+            ):
+                try:
+                    _validate_repo_path(path, "file_path")
+                except GitHubError:
+                    continue
+                targets.append(path)
+            if len(targets) >= MAX_SCAN_FILES:
+                break
 
         files_map: dict[str, str] = {}
         semaphore = asyncio.Semaphore(FETCH_CONCURRENCY)
@@ -295,20 +341,33 @@ class GitHubRepositoryService:
         async def _fetch(client: httpx.AsyncClient, path: str) -> None:
             async with semaphore:
                 try:
-                    res = await client.get(
-                        f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+                    safe_path = "/".join(
+                        quote(segment, safe="") for segment in path.split("/")
                     )
-                    if res.status_code != 200:
-                        return
-                    text = res.text
-                    if len(text.encode("utf-8", errors="ignore")) > MAX_FILE_BYTES:
-                        return
-                    files_map[path] = text
+                    url = (
+                        f"https://raw.githubusercontent.com/{quote(owner, safe='')}/"
+                        f"{quote(repo, safe='')}/{quote(safe_branch, safe='')}/{safe_path}"
+                    )
+                    async with client.stream("GET", url) as res:
+                        if res.status_code != 200:
+                            return
+                        chunks: list[bytes] = []
+                        total = 0
+                        async for chunk in res.aiter_bytes():
+                            total += len(chunk)
+                            if total > MAX_FILE_BYTES:
+                                return
+                            chunks.append(chunk)
+                        files_map[path] = b"".join(chunks).decode(
+                            "utf-8", errors="replace"
+                        )
                 except httpx.HTTPError:
                     return
 
+        # raw.githubusercontent.com does not need (and must not receive) a
+        # GitHub token. Use an unauthenticated client for content fetches.
         async with httpx.AsyncClient(
-            headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
+            timeout=REQUEST_TIMEOUT, follow_redirects=False
         ) as client:
             await asyncio.gather(*(_fetch(client, p) for p in targets))
         return files_map
@@ -368,6 +427,11 @@ class GitHubRepositoryService:
                 raise HTTPException(status_code=err.http_status, detail=err.message)
 
             repo_data = repo_res.json()
+            if repo_data.get("private") and not settings.ALLOW_PRIVATE_REPOS:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Private repositories are disabled. Use a public repository.",
+                )
             default_branch = repo_data.get("default_branch", "main")
             license_info = repo_data.get("license") or {}
             license_name = license_info.get("name")
@@ -454,17 +518,35 @@ class GitHubRepositoryService:
     async def get_raw_file_content(
         self, owner: str, repo: str, branch: str, file_path: str
     ) -> str | None:
-        """Fetch raw text for a specific file on a branch."""
+        """Fetch raw text for a specific file on a branch.
+
+        The branch and path are validated and URL-quoted, redirects are
+        disabled, and the response is size-capped to avoid memory exhaustion.
+        """
+        safe_branch = _validate_repo_path(branch, "branch")
+        safe_file = _validate_repo_path(file_path, "file_path")
+        quoted_path = "/".join(
+            quote(segment, safe="") for segment in safe_file.split("/")
+        )
         try:
             async with httpx.AsyncClient(
-                headers=self._headers(), timeout=REQUEST_TIMEOUT, follow_redirects=True
+                timeout=REQUEST_TIMEOUT, follow_redirects=False
             ) as client:
-                res = await client.get(
-                    f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+                url = (
+                    f"https://raw.githubusercontent.com/{quote(owner, safe='')}/"
+                    f"{quote(repo, safe='')}/{quote(safe_branch, safe='')}/{quoted_path}"
                 )
-                if res.status_code == 200:
-                    return res.text
-        except httpx.HTTPError:
-            pass
-        return None
+                async with client.stream("GET", url) as res:
+                    if res.status_code != 200:
+                        return None
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in res.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_FILE_BYTES:
+                            return None
+                        chunks.append(chunk)
+                    return b"".join(chunks).decode("utf-8", errors="replace")
+        except (httpx.HTTPError, GitHubError):
+            return None
 
