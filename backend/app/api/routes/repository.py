@@ -1,15 +1,20 @@
 """GitHub repository metadata retrieval and grounded file explanation endpoints."""
 
 import re
-from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+
 import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user_id
 from app.core.config import settings
+from app.core.redaction import redact_secrets
 from app.domain.models.github_service import GitHubRepositoryDetails
-from app.infrastructure.github.repository_service import GitHubRepositoryService, parse_github_url
+from app.infrastructure.github.repository_service import (
+    GitHubError,
+    GitHubRepositoryService,
+    parse_github_url,
+)
 from app.infrastructure.pipeline.orchestrator import AnalysisPipelineOrchestrator
 
 router = APIRouter(prefix="/repository", tags=["GitHub Repository Service"])
@@ -26,10 +31,10 @@ async def get_repository_details(
 
 
 class ExplainFileRequest(BaseModel):
-    repo_url: str
-    file_path: str
-    branch: str | None = None
-    analysis_id: str | None = None
+    repo_url: str = Field(min_length=1, max_length=2048)
+    file_path: str = Field(min_length=1, max_length=1024)
+    branch: str | None = Field(default=None, max_length=255)
+    analysis_id: str | None = Field(default=None, max_length=64)
 
 
 class ExplainFileResponse(BaseModel):
@@ -52,7 +57,14 @@ async def explain_file(
     owner, repo = parse_github_url(payload.repo_url)
     service = GitHubRepositoryService()
     branch = payload.branch or "main"
-    content = await service.get_raw_file_content(owner, repo, branch, payload.file_path)
+    try:
+        content = await service.get_raw_file_content(
+            owner, repo, branch, payload.file_path
+        )
+    except GitHubError as exc:
+        raise HTTPException(
+            status_code=exc.http_status, detail=exc.message
+        ) from exc
     if not content:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -63,7 +75,9 @@ async def explain_file(
     concerns: list[str] = []
     if payload.analysis_id:
         rec = AnalysisPipelineOrchestrator.get_analysis_by_id(payload.analysis_id)
-        if rec:
+        # Only enrich from analyses owned by the caller; treat other users'
+        # records as nonexistent to avoid leaking findings/metadata.
+        if rec and rec.get("user_id") == current_user_id:
             for f in (rec.get("security") or {}).get("findings", []):
                 if (f.get("affected_file") or f.get("file_path")) == payload.file_path:
                     concerns.append(f"Security: {f.get('title') or f.get('issue_type')} at line {f.get('line_number', 1)} ({f.get('recommendation', '')})")
@@ -86,12 +100,13 @@ async def explain_file(
     # Try LLM if configured
     if settings.NVIDIA_API_KEY:
         try:
+            snippet = redact_secrets("\n".join(lines[:100]))
             prompt = (
                 f"You are a code analyzer. Explain this file from repository {owner}/{repo}.\n"
                 f"File: {payload.file_path}\n"
                 f"Known issues: {', '.join(concerns) if concerns else 'None detected'}\n"
                 f"Code snippet (first 100 lines):\n"
-                + "\n".join(lines[:100])
+                + snippet
                 + "\n\nProvide JSON format with: 'purpose' (1 sentence), 'responsibilities' (list of strings), 'functions' (list of identified function names), 'dependencies' (list of imported libraries), 'potential_concerns' (list of concerns)."
             )
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -99,7 +114,7 @@ async def explain_file(
                     f"{settings.NVIDIA_BASE_URL}/chat/completions",
                     headers={"Authorization": f"Bearer {settings.NVIDIA_API_KEY}"},
                     json={
-                        "model": "deepseek-ai/deepseek-v4-pro",
+                        "model": settings.NVIDIA_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.2,
                     }

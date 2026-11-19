@@ -1,21 +1,35 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Pin the package manager so builds are reproducible.
+RUN pip install --no-cache-dir "uv==0.11.32"
 
-# Install uv package manager
-RUN pip install --no-cache-dir uv
+# Install from the committed lockfile; no build tools leak into the runtime.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy application source code & dependency manifests
-COPY . .
+COPY . ./
+RUN uv sync --frozen --no-dev
 
-# Install dependencies and project package using uv
-RUN uv pip install --system .
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+RUN adduser --disabled-password --gecos "" --uid 10001 appuser
+
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
 
 EXPOSE 8000
 

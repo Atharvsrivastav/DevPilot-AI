@@ -8,3 +8,30 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      # Fail closed: production validation rejects default/demo settings.
+      - key: ENVIRONMENT
+        value: production
+      - key: ALLOW_DEMO_AUTH
+        value: "false"
+      - key: ALLOW_PRIVATE_REPOS
+        value: "false"
+      # Render generates these once and stores them securely.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+      # Set these in the Render dashboard before the first deploy.
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        sync: false
+      - key: GITHUB_PERSONAL_ACCESS_TOKEN
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_EXTRA_ORIGINS
+        sync: false

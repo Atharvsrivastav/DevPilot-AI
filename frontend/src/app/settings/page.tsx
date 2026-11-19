@@ -11,7 +11,15 @@ import {
   Activity,
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeContext";
-import { apiFetch, ApiError, getAuthToken, setAuthToken } from "@/lib/api";
+import { getApiBaseUrl } from "@/config/api";
+import {
+  apiFetch,
+  ApiError,
+  clearAuthTokens,
+  getAuthToken,
+  getRefreshToken,
+  setAuthToken,
+} from "@/lib/api";
 import { useRepo } from "@/lib/useRepo";
 import { LoadingSkeleton, ErrorBlock } from "@/components/StateBlocks";
 
@@ -62,6 +70,25 @@ function SettingsInner() {
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleLogout = async () => {
+    const accessToken = getAuthToken();
+    const refreshToken = getRefreshToken();
+    try {
+      await apiFetch<{ status: string }>("/api/v1/auth/logout", {
+        method: "POST",
+        auth: false,
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch {
+      /* best-effort revocation; clear locally regardless */
+    }
+    clearAuthTokens();
+    setToken("");
   };
 
   return (
@@ -151,9 +178,25 @@ function SettingsInner() {
                 className="w-full px-4 py-3 rounded-xl bg-slate-950/80 border border-white/10 text-white focus:border-cyan-400 focus:outline-none placeholder-slate-600"
               />
               <p className="text-[11px] text-slate-500">
-                Saved to this browser only. Leave blank to clear and use
-                unauthenticated requests.
+                Saved to this browser only. Leave blank to clear. Protected
+                endpoints require a valid session unless the backend explicitly
+                enables demo mode.
               </p>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <a
+                  href={`${getApiBaseUrl()}/api/v1/auth/github/login`}
+                  className="px-4 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-cyan-300 font-semibold transition-all"
+                >
+                  Sign in with GitHub
+                </a>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 font-semibold transition-all"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
         </div>

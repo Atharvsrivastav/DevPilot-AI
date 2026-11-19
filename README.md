@@ -78,6 +78,16 @@ Copy the blueprint environment configuration file:
 cp .env.example .env
 ```
 
+Then set at least `JWT_SECRET_KEY` and `POSTGRES_PASSWORD` in `.env`. Generate
+strong values with:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+`ALLOW_DEMO_AUTH` defaults to `false`. For local UI development without GitHub
+OAuth you can set it to `true`; production refuses to start with demo auth or
+default secrets enabled.
+
 ### 2. Run via Docker Compose
 To launch PostgreSQL (with pgvector), FastAPI Backend, and Next.js Frontend simultaneously:
 ```bash

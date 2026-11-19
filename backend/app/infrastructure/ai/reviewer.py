@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.redaction import redact_secrets
 from app.domain.models.ai_reviewer import AICodeReviewReport
 
 logger = logging.getLogger("devpilot.ai_reviewer")
@@ -99,18 +100,24 @@ class AICodeReviewerService:
             return None
         keys = [settings.NVIDIA_API_KEY]
 
+        serialized = redact_secrets(
+            json.dumps(static_analysis_json, indent=2)
+        )
         prompt = (
             "You are DevPilot AI's Senior Staff Code Reviewer. Given the exact JSON results from static analyzers below, "
             "explain the findings in human-readable terms. Do NOT invent or hallucinate any findings not present in the JSON.\n\n"
-            f"Static Analyzer JSON Results:\n{json.dumps(static_analysis_json, indent=2)[:4000]}"
+            f"Static Analyzer JSON Results:\n{serialized[:4000]}"
         )
+
+        # Bound the cost/latency of provider fallbacks.
+        models = NVIDIA_PREFERRED_MODELS[: max(1, settings.NVIDIA_MAX_FALLBACK_MODELS)]
 
         for api_key in keys:
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
-            for model in NVIDIA_PREFERRED_MODELS:
+            for model in models:
                 try:
                     payload = {
                         "model": model,
@@ -124,7 +131,9 @@ class AICodeReviewerService:
                         "seed": 42,
                         "chat_template_kwargs": {"thinking": False},
                     }
-                    async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with httpx.AsyncClient(
+                        timeout=settings.NVIDIA_REQUEST_TIMEOUT_SECONDS
+                    ) as client:
                         resp = await client.post(f"{settings.NVIDIA_BASE_URL}/chat/completions", headers=headers, json=payload)
                         if resp.status_code == 200:
                             data = resp.json()

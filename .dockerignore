@@ -1,0 +1,14 @@
+# Keep the build context small and never copy local secrets or virtualenvs.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+frontend/node_modules
+frontend/.next
+backend/.venv
+backend/.ruff_cache
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
