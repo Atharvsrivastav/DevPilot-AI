@@ -6,9 +6,24 @@ from pydantic import BaseModel, Field
 
 
 class ChatMessageRequest(BaseModel):
-    repository_id: str = Field(..., description="owner/repo, e.g. 'facebook/react'")
-    question: str = Field(..., min_length=1, description="User question about the codebase")
-    analysis_id: str | None = Field(default=None, description="Pin chat to a specific analysis run")
+    repository_id: str = Field(
+        ...,
+        min_length=3,
+        max_length=256,
+        pattern=r"^[^/\s]+/[^/\s]+$",
+        description="owner/repo, e.g. 'facebook/react'",
+    )
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=8000,
+        description="User question about the codebase",
+    )
+    analysis_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Pin chat to a specific analysis run",
+    )
 
 
 class ContextSourceSnippet(BaseModel):

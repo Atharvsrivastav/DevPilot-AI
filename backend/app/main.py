@@ -18,6 +18,16 @@ from app.api.routes import (
 from app.core.config import settings
 from app.core.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 
+# In development, allow loopback and private-LAN origins so the UI can be
+# reached from another device on the same network. Public origins must be
+# listed explicitly in CORS_EXTRA_ORIGINS instead of being accepted implicitly.
+_DEV_ORIGIN_REGEX = (
+    r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|"
+    r"10(?:\.\d{1,3}){3}|"
+    r"192\.168(?:\.\d{1,3}){2}|"
+    r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?$"
+)
+
 # Interactive docs are useful in development but expose the full API surface
 # in production, so they are disabled there.
 app = FastAPI(
@@ -39,7 +49,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_origin_regex=r"^https?://.*" if not settings.is_production else None,
+    allow_origin_regex=_DEV_ORIGIN_REGEX if not settings.is_production else None,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],

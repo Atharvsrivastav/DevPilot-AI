@@ -64,6 +64,12 @@ const nextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      {
+        // The OAuth callback carries a short-lived login code in its query
+        // string. Do not leak it through same-origin Referer headers.
+        source: "/auth/callback",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

@@ -4,6 +4,7 @@
 .env
 .env.*
 !.env.example
+.jetro
 frontend/node_modules
 frontend/.next
 backend/.venv
