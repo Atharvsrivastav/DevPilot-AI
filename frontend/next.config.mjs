@@ -19,7 +19,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https://avatars.githubusercontent.com https://github.com https://*.githubusercontent.com",
   "font-src 'self' data:",
-  `connect-src 'self' ${apiOrigin}${isProduction ? "" : " ws://localhost:3000 ws://127.0.0.1:3000"}`,
+  `connect-src 'self' ${apiOrigin}${isProduction ? "" : " * ws: http:"}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -69,6 +69,18 @@ const nextConfig = {
         // string. Do not leak it through same-origin Referer headers.
         source: "/auth/callback",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+    ];
+  },
+  async rewrites() {
+    const backendUrl =
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://127.0.0.1:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl.replace(/\/$/, "")}/api/:path*`,
       },
     ];
   },

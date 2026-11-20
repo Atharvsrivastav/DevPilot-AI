@@ -1,10 +1,9 @@
 export const getApiBaseUrl = (): string => {
-  let url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    const host = window.location.hostname;
-    if (host !== "localhost" && host !== "127.0.0.1") {
-      url = url.replace("localhost", host).replace("127.0.0.1", host);
-    }
+  if (typeof window !== "undefined") {
+    // In browser, use relative URL so Next.js proxy rewrites handle all API requests
+    // seamlessly without CORS or CSP restrictions across any host or IP.
+    return "";
   }
+  const url = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   return url.endsWith("/") ? url.slice(0, -1) : url;
 };
