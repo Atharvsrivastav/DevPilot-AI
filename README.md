@@ -121,5 +121,5 @@ npm run format
 
 -----
 
-## 📄 License
+# # 📄 License
 MIT License. Distributed for enterprise usage and automated repository intelligence.
