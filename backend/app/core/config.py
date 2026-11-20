@@ -52,9 +52,9 @@ class Settings(BaseSettings):
     MAX_QUEUED_ANALYSES: int = 20
 
     # Rate limiting (per client IP, sliding window).
-    RATE_LIMIT_REQUESTS: int = 120
+    RATE_LIMIT_REQUESTS: int = 300
     RATE_LIMIT_WINDOW_SECONDS: int = 60
-    RATE_LIMIT_EXPENSIVE_REQUESTS: int = 10
+    RATE_LIMIT_EXPENSIVE_REQUESTS: int = 30
     RATE_LIMIT_EXPENSIVE_WINDOW_SECONDS: int = 60
 
     # Database

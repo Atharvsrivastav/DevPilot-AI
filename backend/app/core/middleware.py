@@ -1,5 +1,6 @@
 """Cross-cutting HTTP hardening: rate limits and security headers."""
 
+import ipaddress
 import time
 from collections import defaultdict, deque
 
@@ -20,6 +21,17 @@ _EXPENSIVE_PREFIXES = (
     "/api/v1/security",
 )
 _EXEMPT_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json")
+
+
+def _is_local_client(host: str) -> bool:
+    """Check if client IP is loopback or private LAN."""
+    if host in ("localhost", "testclient", "unknown"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -67,7 +79,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client = request.client.host if request.client else "unknown"
-        expensive = path.startswith(_EXPENSIVE_PREFIXES)
+
+        # In development / non-production, allow unlimited local and LAN access to prevent UI polling blocks
+        if not settings.is_production and _is_local_client(client):
+            return await call_next(request)
+
+        # Only mutation endpoints (POST/PUT/PATCH/DELETE) are classified as expensive.
+        # Safe read-only methods (GET/HEAD/OPTIONS) like polling or dashboard loads fall under general limits.
+        expensive = request.method not in ("GET", "HEAD", "OPTIONS") and path.startswith(_EXPENSIVE_PREFIXES)
         if expensive:
             allowed, retry_after = self._hit(
                 f"{client}:expensive",

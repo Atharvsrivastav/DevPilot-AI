@@ -28,12 +28,14 @@ from app.main import _DEV_ORIGIN_REGEX, app
 
 def _production_settings(**overrides) -> Settings:
     values = {
+        "_env_file": None,
         "ENVIRONMENT": "production",
         "JWT_SECRET_KEY": "a" * 48,
         "SECRET_KEY": "b" * 48,
         "ALLOW_DEMO_AUTH": False,
         "FRONTEND_URL": "https://app.example.com",
         "GITHUB_REDIRECT_URI": "https://api.example.com/api/v1/auth/github/callback",
+        "CORS_EXTRA_ORIGINS": "",
     }
     values.update(overrides)
     return Settings(**values)
@@ -100,6 +102,7 @@ def test_jwt_algorithm_is_pinned_to_hs256():
 
 def test_demo_auth_is_opt_in():
     settings = Settings(
+        _env_file=None,
         ENVIRONMENT="development",
         JWT_SECRET_KEY="a" * 48,
         SECRET_KEY="b" * 48,
@@ -248,3 +251,24 @@ def test_auth_responses_disable_caching():
     response = client.post("/api/v1/auth/exchange", json={"code": "x" * 20})
     assert response.status_code == 401
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_is_local_client_recognizes_private_and_loopback():
+    from app.core.middleware import _is_local_client
+
+    assert _is_local_client("127.0.0.1") is True
+    assert _is_local_client("::1") is True
+    assert _is_local_client("localhost") is True
+    assert _is_local_client("10.21.54.186") is True
+    assert _is_local_client("192.168.1.100") is True
+    assert _is_local_client("172.16.0.5") is True
+    assert _is_local_client("8.8.8.8") is False
+    assert _is_local_client("1.1.1.1") is False
+
+
+def test_dev_environment_exempts_local_clients_from_rate_limit():
+    client = TestClient(app)
+    # Repeated calls from testclient should not trigger 429 in dev
+    for _ in range(40):
+        response = client.get("/health")
+        assert response.status_code == 200
