@@ -1,5 +1,7 @@
 """Focused regression tests for the security hardening changes."""
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -13,6 +15,7 @@ from app.core.security import (
     decode_token,
     revoke_token,
 )
+from app.domain.models.repo_chat import ChatMessageRequest
 from app.infrastructure.github.repository_service import (
     GitHubError,
     GitHubRepositoryService,
@@ -20,7 +23,7 @@ from app.infrastructure.github.repository_service import (
     parse_github_url,
 )
 from app.infrastructure.pipeline.orchestrator import _matches_repo
-from app.main import app
+from app.main import _DEV_ORIGIN_REGEX, app
 
 
 def _production_settings(**overrides) -> Settings:
@@ -154,3 +157,49 @@ def test_repository_matching_is_strictly_user_scoped():
         "repository": {"owner": "Owner", "name": "Repo"},
     }
     assert _matches_repo(demo_record, "user_1", "owner", "repo") is False
+
+
+def test_chat_request_rejects_oversized_fields():
+    with pytest.raises(ValidationError):
+        ChatMessageRequest(repository_id="owner/repo", question="x" * 8001)
+    with pytest.raises(ValidationError):
+        ChatMessageRequest(repository_id="a" * 256 + "/b", question="hello")
+    with pytest.raises(ValidationError):
+        ChatMessageRequest(
+            repository_id="owner/repo",
+            question="hello",
+            analysis_id="x" * 129,
+        )
+
+
+def test_chat_request_accepts_normal_payload():
+    payload = ChatMessageRequest(repository_id="owner/repo", question="What changed?")
+    assert payload.repository_id == "owner/repo"
+
+
+def test_dev_cors_regex_allows_loopback_and_private_lan_only():
+    allowed = [
+        "http://localhost:3000",
+        "https://127.0.0.1:8000",
+        "http://[::1]:3000",
+        "http://10.0.0.5",
+        "http://192.168.1.20:3000",
+        "http://172.16.4.2:3000",
+    ]
+    blocked = [
+        "https://example.com",
+        "http://evil.local:3000",
+        "http://172.32.0.1",
+        "http://192.169.1.1",
+    ]
+    for origin in allowed:
+        assert re.fullmatch(_DEV_ORIGIN_REGEX, origin), origin
+    for origin in blocked:
+        assert not re.fullmatch(_DEV_ORIGIN_REGEX, origin), origin
+
+
+def test_auth_responses_disable_caching():
+    client = TestClient(app)
+    response = client.post("/api/v1/auth/exchange", json={"code": "x" * 20})
+    assert response.status_code == 401
+    assert response.headers["cache-control"] == "no-store"

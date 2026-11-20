@@ -20,6 +20,8 @@ ENV/
 .env.*.local
 *.pem
 *.key
+# Local tooling state that may contain credentials
+.jetro/
 
 # IDE & Editor Files
 .vscode/
