@@ -86,9 +86,33 @@ class SecurityScannerService:
 
     # Vulnerable dependency catalog rules
     KNOWN_VULNERABLE_PACKAGES: list[dict[str, Any]] = [
-        {"name": "express", "version_prefix": "4.16.", "cve": "CVE-2019-10760", "severity": SeverityLevel.HIGH, "risk": 7.5, "rec": "Upgrade express to version 4.17.1 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
-        {"name": "lodash", "version_prefix": "4.17.11", "cve": "CVE-2019-10744", "severity": SeverityLevel.CRITICAL, "risk": 9.1, "rec": "Upgrade lodash to version 4.17.21 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
-        {"name": "requests", "version_prefix": "2.20.", "cve": "CVE-2018-18074", "severity": SeverityLevel.MEDIUM, "risk": 5.5, "rec": "Upgrade requests to version 2.22.0 or higher.", "source": "Static catalog (pinned CVE list, not a live feed)"},
+        {
+            "name": "express",
+            "version_prefix": "4.16.",
+            "cve": "CVE-2019-10760",
+            "severity": SeverityLevel.HIGH,
+            "risk": 7.5,
+            "rec": "Upgrade express to version 4.17.1 or higher.",
+            "source": "Static catalog (pinned CVE list, not a live feed)",
+        },
+        {
+            "name": "lodash",
+            "version_prefix": "4.17.11",
+            "cve": "CVE-2019-10744",
+            "severity": SeverityLevel.CRITICAL,
+            "risk": 9.1,
+            "rec": "Upgrade lodash to version 4.17.21 or higher.",
+            "source": "Static catalog (pinned CVE list, not a live feed)",
+        },
+        {
+            "name": "requests",
+            "version_prefix": "2.20.",
+            "cve": "CVE-2018-18074",
+            "severity": SeverityLevel.MEDIUM,
+            "risk": 5.5,
+            "rec": "Upgrade requests to version 2.22.0 or higher.",
+            "source": "Static catalog (pinned CVE list, not a live feed)",
+        },
     ]
 
     @classmethod
@@ -173,15 +197,14 @@ class SecurityScannerService:
             r"@app\.(post|put|patch|delete)|router\.(post|put|patch|delete)|\.post\(|methods\s*=\s*\[[^\]]*POST"
         )
         _post_files = [
-            fp for fp, _content in file_contents_map.items()
-            if _post_route_re.search(_content)
+            fp for fp, _content in file_contents_map.items() if _post_route_re.search(_content)
         ]
-        _mentions_csrf = any(
-            "csrf" in _content.lower() for _content in file_contents_map.values()
-        )
+        _mentions_csrf = any("csrf" in _content.lower() for _content in file_contents_map.values())
         if _post_files and not _mentions_csrf:
-            _note = ("State-changing routes exist but no CSRF token reference "
-                "was found in fetched files.")
+            _note = (
+                "State-changing routes exist but no CSRF token reference "
+                "was found in fetched files."
+            )
             findings.append(
                 SecurityFinding(
                     id=f"SEC-{uuid.uuid4().hex[:8]}",
@@ -195,8 +218,10 @@ class SecurityScannerService:
                     line_number=1,
                     snippet="POST route without observable CSRF token reference",
                     evidence="; ".join(_post_files[:5]),
-                    recommendation=("Confirm CSRF defenses (anti-CSRF tokens or SameSite "
-                        "cookies) if the app uses cookie sessions.") ,
+                    recommendation=(
+                        "Confirm CSRF defenses (anti-CSRF tokens or SameSite "
+                        "cookies) if the app uses cookie sessions."
+                    ),
                     fix_recommendation="Confirm CSRF defenses for cookie-session routes.",
                     confidence="LOW",
                     risk_score=3.0,
@@ -210,7 +235,9 @@ class SecurityScannerService:
         low_count = sum(1 for f in findings if f.severity == SeverityLevel.LOW)
 
         # Deterministic formula: 100 - (Critical*25 + High*15 + Medium*8 + Low*3)
-        deduction = (critical_count * 25.0) + (high_count * 15.0) + (medium_count * 8.0) + (low_count * 3.0)
+        deduction = (
+            (critical_count * 25.0) + (high_count * 15.0) + (medium_count * 8.0) + (low_count * 3.0)
+        )
         security_score = max(0.0, round(100.0 - deduction, 1))
 
         # Overall risk score (0.0 to 10.0 scale)

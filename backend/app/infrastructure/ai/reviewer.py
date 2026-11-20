@@ -49,16 +49,22 @@ class AICodeReviewerService:
         # Deterministic human-readable explanation generator formatting exact static JSON results
         sec_findings = json_evidence.get("security", {}).get("findings", [])
         qual_findings = json_evidence.get("quality", {}).get("findings", [])
-        arch_pattern = json_evidence.get("architecture", {}).get("detected_pattern") or "Undetermined"
+        arch_pattern = (
+            json_evidence.get("architecture", {}).get("detected_pattern") or "Undetermined"
+        )
 
         improvements = []
         if sec_findings:
-            improvements.append(f"Security: Address {len(sec_findings)} detected security vulnerability findings.")
+            improvements.append(
+                f"Security: Address {len(sec_findings)} detected security vulnerability findings."
+            )
         else:
             improvements.append("Security: No issues detected by current checks.")
 
         if qual_findings:
-            improvements.append(f"Code Quality: Refactor {len(qual_findings)} flagged quality smells and complexity items.")
+            improvements.append(
+                f"Code Quality: Refactor {len(qual_findings)} flagged quality smells and complexity items."
+            )
         else:
             improvements.append("Code Quality: No quality findings reported by current checks.")
 
@@ -66,16 +72,22 @@ class AICodeReviewerService:
 
         pr_comments = [f"Verified {len(file_tree)} tracked files against static rules."]
         for f in sec_findings[:2]:
-            pr_comments.append(f"Security Alert in {f.get('affected_file', 'code')}: {f.get('title', 'Issue')}")
+            pr_comments.append(
+                f"Security Alert in {f.get('affected_file', 'code')}: {f.get('title', 'Issue')}"
+            )
 
         refactor_targets = []
         for q in qual_findings[:2]:
-            refactor_targets.append({
-                "file_path": q.get("file_path", "unknown"),
-                "target_symbol": q.get("issue_type", "Quality Smell"),
-                "reason": q.get("title", "High complexity or dead code detected"),
-                "suggested_code": q.get("recommendation", "Refactor into smaller modular functions."),
-            })
+            refactor_targets.append(
+                {
+                    "file_path": q.get("file_path", "unknown"),
+                    "target_symbol": q.get("issue_type", "Quality Smell"),
+                    "reason": q.get("title", "High complexity or dead code detected"),
+                    "suggested_code": q.get(
+                        "recommendation", "Refactor into smaller modular functions."
+                    ),
+                }
+            )
 
         # No fabricated targets: empty means no evidence-backed suggestions exist.
 
@@ -94,15 +106,15 @@ class AICodeReviewerService:
         )
 
     @classmethod
-    async def _query_nvidia_nim(cls, static_analysis_json: dict[str, Any]) -> AICodeReviewReport | None:
+    async def _query_nvidia_nim(
+        cls, static_analysis_json: dict[str, Any]
+    ) -> AICodeReviewReport | None:
         """Call NVIDIA NIM API with preferred model fallback order."""
         if not settings.NVIDIA_API_KEY:
             return None
         keys = [settings.NVIDIA_API_KEY]
 
-        serialized = redact_secrets(
-            json.dumps(static_analysis_json, indent=2)
-        )
+        serialized = redact_secrets(json.dumps(static_analysis_json, indent=2))
         prompt = (
             "You are DevPilot AI's Senior Staff Code Reviewer. Given the exact JSON results from static analyzers below, "
             "explain the findings in human-readable terms. Do NOT invent or hallucinate any findings not present in the JSON.\n\n"
@@ -122,7 +134,10 @@ class AICodeReviewerService:
                     payload = {
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": "You explain static code analysis JSON findings concisely without inventing vulnerabilities."},
+                            {
+                                "role": "system",
+                                "content": "You explain static code analysis JSON findings concisely without inventing vulnerabilities.",
+                            },
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 1.0,
@@ -134,20 +149,30 @@ class AICodeReviewerService:
                     async with httpx.AsyncClient(
                         timeout=settings.NVIDIA_REQUEST_TIMEOUT_SECONDS
                     ) as client:
-                        resp = await client.post(f"{settings.NVIDIA_BASE_URL}/chat/completions", headers=headers, json=payload)
+                        resp = await client.post(
+                            f"{settings.NVIDIA_BASE_URL}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                        )
                         if resp.status_code == 200:
                             data = resp.json()
                             explanation_text = data["choices"][0]["message"]["content"]
                             return AICodeReviewReport(
-                                repository_url=static_analysis_json.get("repository_url", "repository"),
+                                repository_url=static_analysis_json.get(
+                                    "repository_url", "repository"
+                                ),
                                 repository_summary=f"NVIDIA NIM ({model}) Analysis Summary: {explanation_text[:300]}...",
                                 architecture_explanation=f"NVIDIA NIM ({model}) Architecture Assessment based on static findings.",
                                 improvement_suggestions=[explanation_text[:200]],
                                 readme_improvements="Ensure setup steps and architecture overview are included.",
-                                pr_review_comments=["Verified against NVIDIA NIM free LLM model explanation."],
+                                pr_review_comments=[
+                                    "Verified against NVIDIA NIM free LLM model explanation."
+                                ],
                                 refactoring_suggestions=[],
                             )
                 except Exception as e:
-                    logger.warning(f"NVIDIA NIM model '{model}' query failed: {e}. Trying next model...")
+                    logger.warning(
+                        f"NVIDIA NIM model '{model}' query failed: {e}. Trying next model..."
+                    )
                     continue
         return None

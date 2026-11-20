@@ -1,6 +1,7 @@
 """Health Score Engine calculating overall and pillar-specific repository scores strictly from real analyzer evidence."""
 
-from typing import Any, Optional
+from typing import Any
+
 from app.domain.models.health_score import (
     IndividualPillarScores,
     RepositoryHealthScoreReport,
@@ -23,19 +24,19 @@ class HealthScoreCalculatorService:
     def calculate_health_score(
         cls,
         repo_url: str,
-        security_score: Optional[float] = None,
-        code_quality_score: Optional[float] = None,
-        architecture_score: Optional[float] = None,
-        documentation_score: Optional[float] = None,
-        dependencies_score: Optional[float] = None,
-        testing_score: Optional[float] = None,
-        activity_score: Optional[float] = None,
-        performance_signals_score: Optional[float] = None,
-        raw_metrics: Optional[dict[str, Any]] = None,
-        formulas_used: Optional[dict[str, str]] = None,
+        security_score: float | None = None,
+        code_quality_score: float | None = None,
+        architecture_score: float | None = None,
+        documentation_score: float | None = None,
+        dependencies_score: float | None = None,
+        testing_score: float | None = None,
+        activity_score: float | None = None,
+        performance_signals_score: float | None = None,
+        raw_metrics: dict[str, Any] | None = None,
+        formulas_used: dict[str, str] | None = None,
     ) -> RepositoryHealthScoreReport:
         """Calculates weighted overall health score, confidence rating, grade, and actionable suggestions strictly from real analyzer data."""
-        
+
         scores_map = {
             "security": security_score,
             "code_quality": code_quality_score,
@@ -82,15 +83,16 @@ class HealthScoreCalculatorService:
                 ),
                 raw_metrics=raw,
                 formulas_used=formulas_used or {},
-                actionable_suggestions=["No analyzer outputs provided. Run scanners to generate score."],
+                actionable_suggestions=[
+                    "No analyzer outputs provided. Run scanners to generate score."
+                ],
                 skipped_modules=skipped_modules,
             )
 
         # Scale weights of active analyzed pillars to sum to 1.0
         total_active_weight = sum(cls.BASE_WEIGHTS[k] for k in active_pillars)
         weights_applied = {
-            k: round(cls.BASE_WEIGHTS[k] / total_active_weight, 3)
-            for k in active_pillars
+            k: round(cls.BASE_WEIGHTS[k] / total_active_weight, 3) for k in active_pillars
         }
         weighted_sum = sum(active_pillars[k] * weights_applied[k] for k in active_pillars)
         overall = round(weighted_sum, 1)
@@ -112,17 +114,29 @@ class HealthScoreCalculatorService:
         # Actionable Suggestions based on real findings
         suggestions: list[str] = []
         if security_score is not None and security_score < 80.0:
-            suggestions.append("Security: Resolve critical vulnerabilities and remove hardcoded secrets.")
+            suggestions.append(
+                "Security: Resolve critical vulnerabilities and remove hardcoded secrets."
+            )
         if code_quality_score is not None and code_quality_score < 80.0:
-            suggestions.append("Code Quality: Reduce function cyclomatic complexity and remove duplicate blocks.")
+            suggestions.append(
+                "Code Quality: Reduce function cyclomatic complexity and remove duplicate blocks."
+            )
         if testing_score is not None and testing_score < 75.0:
-            suggestions.append("Testing: Add automated test suites and verify CI execution in GitHub workflows.")
+            suggestions.append(
+                "Testing: Add automated test suites and verify CI execution in GitHub workflows."
+            )
         if documentation_score is not None and documentation_score < 75.0:
-            suggestions.append("Documentation: Expand README installation guide and API docstrings.")
+            suggestions.append(
+                "Documentation: Expand README installation guide and API docstrings."
+            )
         if dependencies_score is not None and dependencies_score < 75.0:
-            suggestions.append("Dependencies: Commit a reproducible lockfile (e.g. package-lock.json, poetry.lock, Cargo.lock).")
+            suggestions.append(
+                "Dependencies: Commit a reproducible lockfile (e.g. package-lock.json, poetry.lock, Cargo.lock)."
+            )
         if activity_score is not None and activity_score < 60.0:
-            suggestions.append("Activity: Project exhibits low recent commit cadence or inactive maintainer response.")
+            suggestions.append(
+                "Activity: Project exhibits low recent commit cadence or inactive maintainer response."
+            )
 
         if not suggestions:
             suggestions.append("Repository health is optimal based on executed scanners.")
@@ -132,7 +146,9 @@ class HealthScoreCalculatorService:
             f"{k} ({int(round(cls.BASE_WEIGHTS[k] * 100))}%)" for k in active_pillars
         ]
         merged_formulas = formulas_used or {}
-        merged_formulas["overall_health_score"] = f"Weighted Sum: {' + '.join(active_formula_parts)}"
+        merged_formulas["overall_health_score"] = (
+            f"Weighted Sum: {' + '.join(active_formula_parts)}"
+        )
 
         return RepositoryHealthScoreReport(
             repository_url=repo_url,

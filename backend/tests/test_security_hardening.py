@@ -83,9 +83,7 @@ def test_repo_path_validation_rejects_traversal():
 async def test_raw_file_fetch_rejects_traversal_before_network():
     service = GitHubRepositoryService()
     with pytest.raises(GitHubError):
-        await service.get_raw_file_content(
-            "owner", "repo", "main", "../../etc/passwd"
-        )
+        await service.get_raw_file_content("owner", "repo", "main", "../../etc/passwd")
 
 
 def test_parse_github_url_rejects_dot_segments():
@@ -137,9 +135,7 @@ def test_scan_payload_rejects_too_many_files():
 def test_logout_revokes_supplied_refresh_token():
     client = TestClient(app)
     token = create_refresh_token("user_123")
-    response = client.post(
-        "/api/v1/auth/logout", json={"refresh_token": token}
-    )
+    response = client.post("/api/v1/auth/logout", json={"refresh_token": token})
     assert response.status_code == 200
     with pytest.raises(ValueError):
         decode_token(token)

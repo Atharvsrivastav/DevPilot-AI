@@ -100,9 +100,7 @@ class AnalysisPipelineOrchestrator:
         return ANALYSIS_STORE.get(analysis_id)
 
     @classmethod
-    def get_latest_for_repo(
-        cls, user_id: str, owner: str, repo: str
-    ) -> dict[str, Any] | None:
+    def get_latest_for_repo(cls, user_id: str, owner: str, repo: str) -> dict[str, Any] | None:
         """Most recent analysis for THIS user + repository. Never cross-repo."""
         cached_id = REPO_ANALYSIS_CACHE.get(f"analysis:{owner.lower()}:{repo.lower()}:latest")
         if cached_id:
@@ -110,10 +108,7 @@ class AnalysisPipelineOrchestrator:
             if record and _matches_repo(record, user_id, owner, repo):
                 return record
 
-        candidates = [
-            r for r in ANALYSIS_STORE.values()
-            if _matches_repo(r, user_id, owner, repo)
-        ]
+        candidates = [r for r in ANALYSIS_STORE.values() if _matches_repo(r, user_id, owner, repo)]
         if not candidates:
             return None
         return sorted(candidates, key=lambda x: x.get("created_at", ""), reverse=True)[0]
@@ -126,7 +121,8 @@ class AnalysisPipelineOrchestrator:
         records = [r for r in ANALYSIS_STORE.values() if r.get("user_id") == user_id]
         if owner and repo:
             records = [
-                r for r in records
+                r
+                for r in records
                 if r.get("repository", {}).get("owner", "").lower() == owner.lower()
                 and r.get("repository", {}).get("name", "").lower() == repo.lower()
             ]
@@ -144,9 +140,7 @@ class AnalysisPipelineOrchestrator:
             raise GitHubError("INVALID_BRANCH", "Branch name is too long.", 400)
 
         queued_or_running = sum(
-            1
-            for record in ANALYSIS_STORE.values()
-            if record.get("status") in _ACTIVE_STATUSES
+            1 for record in ANALYSIS_STORE.values() if record.get("status") in _ACTIVE_STATUSES
         )
         if queued_or_running >= settings.MAX_QUEUED_ANALYSES:
             raise GitHubError(
@@ -201,9 +195,7 @@ class AnalysisPipelineOrchestrator:
             "error_message": None,
         }
         logger.info(f"Queued analysis {analysis_id} for {owner}/{name} (user {user_id})")
-        task = asyncio.create_task(
-            cls._run_guarded(analysis_id, owner, name, branch)
-        )
+        task = asyncio.create_task(cls._run_guarded(analysis_id, owner, name, branch))
         # Hold a strong reference until the task finishes; otherwise the event
         # loop may garbage-collect a task that is still running.
         _TASKS.add(task)
@@ -211,9 +203,7 @@ class AnalysisPipelineOrchestrator:
         return analysis_id
 
     @classmethod
-    async def _run_guarded(
-        cls, analysis_id: str, owner: str, name: str, branch: str
-    ) -> None:
+    async def _run_guarded(cls, analysis_id: str, owner: str, name: str, branch: str) -> None:
         """Run at most MAX_CONCURRENT_ANALYSES pipelines at once."""
         async with _get_analysis_semaphore():
             await cls._execute_pipeline(analysis_id, owner, name, branch)
@@ -222,9 +212,7 @@ class AnalysisPipelineOrchestrator:
     # Pipeline
     # ------------------------------------------------------------------
     @classmethod
-    async def _execute_pipeline(
-        cls, analysis_id: str, owner: str, name: str, branch: str
-    ):
+    async def _execute_pipeline(cls, analysis_id: str, owner: str, name: str, branch: str):
         start_time = time.time()
         record = ANALYSIS_STORE[analysis_id]
         repo = record["repository"]
@@ -281,9 +269,7 @@ class AnalysisPipelineOrchestrator:
                     )
                     active_branch = default_branch
                     try:
-                        tree_paths = await service.get_repository_tree(
-                            owner, name, active_branch
-                        )
+                        tree_paths = await service.get_repository_tree(owner, name, active_branch)
                     except GitHubError as e2:
                         cls._fail(record, start_time, e2.code, e2.message)
                         return
@@ -305,7 +291,9 @@ class AnalysisPipelineOrchestrator:
 
             if not tree_paths:
                 cls._fail(
-                    record, start_time, "EMPTY_TREE",
+                    record,
+                    start_time,
+                    "EMPTY_TREE",
                     f"GitHub returned an empty file tree for '{owner}/{name}'. The repository may be empty.",
                 )
                 return
@@ -404,15 +392,23 @@ class AnalysisPipelineOrchestrator:
                 if fp:
                     entry = file_risk_map.setdefault(fp, {"risk_score": 0, "findings": []})
                     sev = (f.get("severity") or "LOW").upper()
-                    weight = 40 if sev == "CRITICAL" else (25 if sev == "HIGH" else (10 if sev == "MEDIUM" else 5))
+                    weight = (
+                        40
+                        if sev == "CRITICAL"
+                        else (25 if sev == "HIGH" else (10 if sev == "MEDIUM" else 5))
+                    )
                     entry["risk_score"] += weight
-                    entry["findings"].append({
-                        "pillar": "security",
-                        "severity": sev,
-                        "title": f.get("title") or f.get("issue_type") or "Security Finding",
-                        "line": f.get("line_number") or f.get("line") or 1,
-                        "recommendation": f.get("recommendation") or f.get("fix_recommendation") or "Review security finding",
-                    })
+                    entry["findings"].append(
+                        {
+                            "pillar": "security",
+                            "severity": sev,
+                            "title": f.get("title") or f.get("issue_type") or "Security Finding",
+                            "line": f.get("line_number") or f.get("line") or 1,
+                            "recommendation": f.get("recommendation")
+                            or f.get("fix_recommendation")
+                            or "Review security finding",
+                        }
+                    )
             for f in qual_result.get("findings", []) if qual_result else []:
                 fp = f.get("affected_file") or f.get("file_path")
                 if fp:
@@ -420,16 +416,22 @@ class AnalysisPipelineOrchestrator:
                     sev = (f.get("severity") or "LOW").upper()
                     weight = 20 if "complexity" in (f.get("title") or "").lower() else 10
                     entry["risk_score"] += weight
-                    entry["findings"].append({
-                        "pillar": "quality",
-                        "severity": sev,
-                        "title": f.get("title") or f.get("issue_type") or "Quality Finding",
-                        "line": f.get("line_number") or f.get("line") or 1,
-                        "recommendation": f.get("recommendation") or "Refactor code structure",
-                    })
-            for fp, data in file_risk_map.items():
+                    entry["findings"].append(
+                        {
+                            "pillar": "quality",
+                            "severity": sev,
+                            "title": f.get("title") or f.get("issue_type") or "Quality Finding",
+                            "line": f.get("line_number") or f.get("line") or 1,
+                            "recommendation": f.get("recommendation") or "Refactor code structure",
+                        }
+                    )
+            for _fp, data in file_risk_map.items():
                 s = data["risk_score"]
-                data["level"] = "CRITICAL" if s >= 40 else ("HIGH" if s >= 25 else ("MEDIUM" if s >= 10 else "LOW"))
+                data["level"] = (
+                    "CRITICAL"
+                    if s >= 40
+                    else ("HIGH" if s >= 25 else ("MEDIUM" if s >= 10 else "LOW"))
+                )
             record["file_risk_map"] = file_risk_map
 
             # ---- STEP 5: optional AI interpretation (never blocks results) ----
@@ -462,7 +464,9 @@ class AnalysisPipelineOrchestrator:
             record["duration_seconds"] = duration
 
             commit_sha = repo.get("commit_sha") or "latest"
-            REPO_ANALYSIS_CACHE[f"analysis:{owner.lower()}:{name.lower()}:{commit_sha}"] = analysis_id
+            REPO_ANALYSIS_CACHE[f"analysis:{owner.lower()}:{name.lower()}:{commit_sha}"] = (
+                analysis_id
+            )
             REPO_ANALYSIS_CACHE[f"analysis:{owner.lower()}:{name.lower()}:latest"] = analysis_id
 
             logger.info(
@@ -566,9 +570,7 @@ class AnalysisPipelineOrchestrator:
     @staticmethod
     def _run_documentation(files_map, record):
         try:
-            score, metrics, formula = DocumentationScannerService.scan_documentation(
-                files_map
-            )
+            score, metrics, formula = DocumentationScannerService.scan_documentation(files_map)
             return score, {
                 "pillar": "documentation",
                 "status": "completed" if score is not None else "failed",

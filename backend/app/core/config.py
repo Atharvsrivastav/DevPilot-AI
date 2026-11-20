@@ -47,9 +47,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "devpilot_db"
     POSTGRES_HOST: str = "postgres"
     POSTGRES_PORT: int = 5432
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://devpilot:devpilot_password@postgres:5432/devpilot_db"
-    )
+    DATABASE_URL: str = "postgresql+asyncpg://devpilot:devpilot_password@postgres:5432/devpilot_db"
 
     # AI Providers — no hardcoded keys; set via environment.
     OPENAI_API_KEY: str | None = None
@@ -74,9 +72,7 @@ class Settings(BaseSettings):
     OAUTH_STATE_TTL_SECONDS: int = 600
     LOGIN_CODE_TTL_SECONDS: int = 60
 
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origins(self) -> list[str]:
@@ -85,12 +81,14 @@ class Settings(BaseSettings):
             origins += [
                 "http://localhost:3000",
                 "http://127.0.0.1:3000",
+                "http://localhost:3001",
+                "http://127.0.0.1:3001",
+                "http://localhost:3002",
+                "http://127.0.0.1:3002",
             ]
         if self.CORS_EXTRA_ORIGINS.strip():
             origins += [
-                o.strip().rstrip("/")
-                for o in self.CORS_EXTRA_ORIGINS.split(",")
-                if o.strip()
+                o.strip().rstrip("/") for o in self.CORS_EXTRA_ORIGINS.split(",") if o.strip()
             ]
         return origins
 

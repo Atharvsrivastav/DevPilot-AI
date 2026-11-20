@@ -30,4 +30,6 @@ class GitHubRepositoryDetails(BaseModel):
     top_contributors: list[ContributorInfo] = Field(default_factory=list)
     readme_content: str | None = None
     license_name: str | None = None
-    folder_tree: list[str] = Field(default_factory=list, description="File and directory path listing")
+    folder_tree: list[str] = Field(
+        default_factory=list, description="File and directory path listing"
+    )

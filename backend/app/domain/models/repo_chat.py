@@ -6,13 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class ChatMessageRequest(BaseModel):
-    repository_id: str = Field(
-        ..., description="owner/repo, e.g. 'facebook/react'"
-    )
+    repository_id: str = Field(..., description="owner/repo, e.g. 'facebook/react'")
     question: str = Field(..., min_length=1, description="User question about the codebase")
-    analysis_id: str | None = Field(
-        default=None, description="Pin chat to a specific analysis run"
-    )
+    analysis_id: str | None = Field(default=None, description="Pin chat to a specific analysis run")
 
 
 class ContextSourceSnippet(BaseModel):
@@ -28,5 +24,7 @@ class ChatMessageResponse(BaseModel):
         default=False,
         description="True when an LLM produced the answer; False for deterministic summaries",
     )
-    sources: list[ContextSourceSnippet] = Field(default_factory=list, description="Real findings/snippets grounding the answer")
+    sources: list[ContextSourceSnippet] = Field(
+        default_factory=list, description="Real findings/snippets grounding the answer"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

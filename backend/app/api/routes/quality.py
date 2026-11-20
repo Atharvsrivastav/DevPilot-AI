@@ -31,21 +31,16 @@ class QualityScanPayload(BaseModel):
             if not path or len(path) > 512:
                 raise ValueError("File paths must be between 1 and 512 characters.")
             if len(content) > MAX_FILE_CHARS:
-                raise ValueError(
-                    f"Each file must be at most {MAX_FILE_CHARS} characters."
-                )
+                raise ValueError(f"Each file must be at most {MAX_FILE_CHARS} characters.")
             total += len(content)
         if total > MAX_TOTAL_CHARS:
-            raise ValueError(
-                f"Total payload must be at most {MAX_TOTAL_CHARS} characters."
-            )
+            raise ValueError(f"Total payload must be at most {MAX_TOTAL_CHARS} characters.")
         return files
 
 
 @router.post("/scan", response_model=QualityScanResult, status_code=status.HTTP_200_OK)
 async def scan_code_quality(
-    payload: QualityScanPayload,
-    current_user_id: str = Depends(get_current_user_id)
+    payload: QualityScanPayload, current_user_id: str = Depends(get_current_user_id)
 ):
     """Scan for dead code, duplicates, unused imports/vars, large files,
     long functions, complexity, and naming issues.

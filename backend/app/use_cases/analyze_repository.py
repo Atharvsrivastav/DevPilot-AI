@@ -9,10 +9,5 @@ class AnalyzeRepositoryUseCase:
         self._repo_repository = repo_repository
 
     async def execute(self, repo_url: str, owner: str, name: str) -> AnalysisReport:
-        repository = Repository(
-            id=f"{owner}/{name}",
-            url=repo_url,
-            owner=owner,
-            name=name
-        )
+        repository = Repository(id=f"{owner}/{name}", url=repo_url, owner=owner, name=name)
         return await self._repo_repository.create_analysis(repository)

@@ -57,9 +57,7 @@ async def get_analysis_history(
     current_user_id: str = Depends(get_current_user_id),
 ):
     """Audit history for the current user, optionally filtered to one repository."""
-    return AnalysisPipelineOrchestrator.get_history_for_user(
-        current_user_id, owner, repo
-    )
+    return AnalysisPipelineOrchestrator.get_history_for_user(current_user_id, owner, repo)
 
 
 @router.get("/{analysis_id}", response_model=dict[str, Any])

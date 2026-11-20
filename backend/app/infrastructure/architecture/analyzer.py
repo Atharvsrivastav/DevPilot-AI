@@ -39,7 +39,10 @@ class ArchitectureAnalyzerService:
         has_infra = any("infrastructure" in p or "infra" in p for p in paths_set)
         has_ports = any("ports" in p or "adapters" in p for p in paths_set)
         has_mvc = any("controllers" in p or "views" in p or "models" in p for p in paths_set)
-        has_microservices = any("docker-compose" in p or "k8s" in p or "services/" in p for p in paths_set) and len([p for p in tree if p.count("/") == 1 and "service" in p]) > 1
+        has_microservices = (
+            any("docker-compose" in p or "k8s" in p or "services/" in p for p in paths_set)
+            and len([p for p in tree if p.count("/") == 1 and "service" in p]) > 1
+        )
 
         if has_domain and has_use_cases and has_infra:
             pattern = ArchitecturePattern.CLEAN_ARCHITECTURE
@@ -63,7 +66,7 @@ class ArchitectureAnalyzerService:
             base_score = 75.0
 
         # 2. Build Folder Graph
-        folder_graph = sorted(list({p.split("/")[0] for p in tree if "/" in p}))
+        folder_graph = sorted({p.split("/")[0] for p in tree if "/" in p})
 
         # 3. Generate Dependency Graph Edges
         dependency_graph: list[DependencyEdge] = []
@@ -71,8 +74,12 @@ class ArchitectureAnalyzerService:
             dependency_graph = [
                 DependencyEdge(source="API / Controllers", target="Use Cases", relation="calls"),
                 DependencyEdge(source="Use Cases", target="Domain Entities", relation="uses"),
-                DependencyEdge(source="Infrastructure", target="Domain Interfaces", relation="implements"),
-                DependencyEdge(source="Use Cases", target="Domain Interfaces", relation="depends_on"),
+                DependencyEdge(
+                    source="Infrastructure", target="Domain Interfaces", relation="implements"
+                ),
+                DependencyEdge(
+                    source="Use Cases", target="Domain Interfaces", relation="depends_on"
+                ),
             ]
         elif pattern == ArchitecturePattern.MVC:
             dependency_graph = [
@@ -81,20 +88,32 @@ class ArchitectureAnalyzerService:
             ]
         else:
             dependency_graph = [
-                DependencyEdge(source="Presentation Layer", target="Business Logic Layer", relation="calls"),
-                DependencyEdge(source="Business Logic Layer", target="Data Access Layer", relation="queries"),
+                DependencyEdge(
+                    source="Presentation Layer", target="Business Logic Layer", relation="calls"
+                ),
+                DependencyEdge(
+                    source="Business Logic Layer", target="Data Access Layer", relation="queries"
+                ),
             ]
 
         # 4. Generate Mermaid.js Diagram String
         mermaid_diagram = cls._generate_mermaid_diagram(pattern)
 
         # 5. Calculate Measurable Modularity & Coupling Scores
-        layer_count = sum([has_domain, has_use_cases, has_infra, has_ports, has_mvc, has_microservices])
+        layer_count = sum(
+            [has_domain, has_use_cases, has_infra, has_ports, has_mvc, has_microservices]
+        )
         modularity_score = min(100.0, round(base_score * 0.8 + (len(folder_graph) * 2.5), 1))
-        coupling_score = 20.0 if pattern in (ArchitecturePattern.CLEAN_ARCHITECTURE, ArchitecturePattern.HEXAGONAL) else 50.0
+        coupling_score = (
+            20.0
+            if pattern in (ArchitecturePattern.CLEAN_ARCHITECTURE, ArchitecturePattern.HEXAGONAL)
+            else 50.0
+        )
 
         # Overall architecture pillar score formula: base_score + (layer_count * 2.0) - (coupling_score * 0.1)
-        architecture_score = max(0.0, min(100.0, round(base_score + (layer_count * 2.0) - (coupling_score * 0.1), 1)))
+        architecture_score = max(
+            0.0, min(100.0, round(base_score + (layer_count * 2.0) - (coupling_score * 0.1), 1))
+        )
 
         raw_metrics = {
             "total_tree_files": len(tree),
@@ -154,7 +173,7 @@ class ArchitectureAnalyzerService:
     UC --> Interface
     DB -.-> Interface
     GitHub -.-> Interface"""
-        
+
         elif pattern == ArchitecturePattern.HEXAGONAL:
             return """graph LR
     User["User / HTTP Client"] --> AdapterIn["Inbound Adapters (REST API)"]

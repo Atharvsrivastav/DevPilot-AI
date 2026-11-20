@@ -77,3 +77,9 @@ async def root() -> dict:
 async def health_check() -> dict:
     """Dedicated liveness probe endpoint."""
     return _health_payload()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app.main:app", host=settings.BACKEND_HOST, port=settings.BACKEND_PORT, reload=True)

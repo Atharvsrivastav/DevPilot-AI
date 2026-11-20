@@ -1,11 +1,13 @@
 """Documentation Scanner engine calculating documentation coverage strictly from repository files."""
 
-from typing import Any, Optional
+from typing import Any
 
 
 class DocumentationScannerService:
     @classmethod
-    def scan_documentation(cls, files_map: dict[str, str]) -> tuple[Optional[float], dict[str, Any], str]:
+    def scan_documentation(
+        cls, files_map: dict[str, str]
+    ) -> tuple[float | None, dict[str, Any], str]:
         """Calculates documentation score and returns (score, raw_metrics, formula_used)."""
         if not files_map:
             return None, {"scanned_files": 0}, "Not Analyzed (No source files scanned)"
@@ -21,7 +23,9 @@ class DocumentationScannerService:
         has_license = any("license" in f.lower() for f in files_map)
         has_contributing = any("contributing" in f.lower() for f in files_map)
 
-        docstring_count = sum(content.count('"""') + content.count("/**") for content in files_map.values())
+        docstring_count = sum(
+            content.count('"""') + content.count("/**") for content in files_map.values()
+        )
         has_api_docs = docstring_count >= 5
 
         score = 0.0
@@ -49,6 +53,8 @@ class DocumentationScannerService:
             "docstrings_found": docstring_count,
         }
 
-        formula_used = "+30 README +20 README Length (>500) +20 LICENSE +15 CONTRIBUTING +15 API Docs"
+        formula_used = (
+            "+30 README +20 README Length (>500) +20 LICENSE +15 CONTRIBUTING +15 API Docs"
+        )
 
         return documentation_score, raw_metrics, formula_used

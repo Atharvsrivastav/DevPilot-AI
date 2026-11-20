@@ -4,8 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "uv run --directory backend uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "build": "npm --prefix frontend run build",
     "start": "npm --prefix frontend run start",
-    "lint": "npm --prefix frontend run lint"
+    "lint": "npm --prefix frontend run lint",
+    "test:backend": "uv run --directory backend pytest",
+    "lint:backend": "uv run --directory backend ruff check ."
   }
 }

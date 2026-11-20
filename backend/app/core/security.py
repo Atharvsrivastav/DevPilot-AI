@@ -2,7 +2,7 @@
 
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -35,11 +35,11 @@ def revoke_token(payload: dict[str, Any]) -> None:
 def create_access_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
     """Generate a JWT Access Token."""
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    now = datetime.now(timezone.utc)
+        expire = datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    now = datetime.now(UTC)
     to_encode = {
         "exp": expire,
         "iat": now,
@@ -53,11 +53,11 @@ def create_access_token(subject: str | Any, expires_delta: timedelta | None = No
 def create_refresh_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
     """Generate a JWT Refresh Token."""
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    
-    now = datetime.now(timezone.utc)
+        expire = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    now = datetime.now(UTC)
     to_encode = {
         "exp": expire,
         "iat": now,

@@ -1,6 +1,7 @@
 """API schema contracts for repository analysis endpoints."""
 
-from typing import Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, HttpUrl
 
 
@@ -21,13 +22,13 @@ class AnalysisStatusResponse(BaseModel):
     progress: int
     current_step: str
     created_at: str
-    completed_at: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    completed_at: str | None = None
+    duration_seconds: float | None = None
     repository: dict[str, Any]
-    security: Optional[dict[str, Any]] = None
-    quality: Optional[dict[str, Any]] = None
-    architecture: Optional[dict[str, Any]] = None
-    documentation: Optional[dict[str, Any]] = None
-    health: Optional[dict[str, Any]] = None
+    security: dict[str, Any] | None = None
+    quality: dict[str, Any] | None = None
+    architecture: dict[str, Any] | None = None
+    documentation: dict[str, Any] | None = None
+    health: dict[str, Any] | None = None
     skipped_modules: list[str] = []
-    error_message: Optional[str] = None
+    error_message: str | None = None

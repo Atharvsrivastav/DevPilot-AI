@@ -3,7 +3,6 @@
 import ast
 import re
 import uuid
-from typing import Any
 
 from app.domain.models.quality_scanner import (
     QualityFinding,
@@ -74,13 +73,25 @@ class CodeQualityScannerService:
 
         # 5. Extract Raw Counts
         dead_code_count = sum(1 for f in findings if f.issue_type == QualityIssueType.DEAD_CODE)
-        duplicate_code_count = sum(1 for f in findings if f.issue_type == QualityIssueType.DUPLICATE_CODE)
-        unused_imports_count = sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_IMPORT)
-        unused_variables_count = sum(1 for f in findings if f.issue_type == QualityIssueType.UNUSED_VARIABLE)
+        duplicate_code_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.DUPLICATE_CODE
+        )
+        unused_imports_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.UNUSED_IMPORT
+        )
+        unused_variables_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.UNUSED_VARIABLE
+        )
         large_files_count = sum(1 for f in findings if f.issue_type == QualityIssueType.LARGE_FILE)
-        long_functions_count = sum(1 for f in findings if f.issue_type == QualityIssueType.LONG_FUNCTION)
-        high_complexity_count = sum(1 for f in findings if f.issue_type == QualityIssueType.HIGH_CYCLOMATIC_COMPLEXITY)
-        naming_issues_count = sum(1 for f in findings if f.issue_type == QualityIssueType.NAMING_ISSUE)
+        long_functions_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.LONG_FUNCTION
+        )
+        high_complexity_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.HIGH_CYCLOMATIC_COMPLEXITY
+        )
+        naming_issues_count = sum(
+            1 for f in findings if f.issue_type == QualityIssueType.NAMING_ISSUE
+        )
 
         # Normalized Deductions with Category Caps to prevent 0/100 collapses
         deduction = (
@@ -135,7 +146,9 @@ class CodeQualityScannerService:
             c = l_text.strip()
             if len(c) < 16:
                 return False
-            if c.startswith(("//", "#", "/*", "*", "import ", "from ", "export type", "export interface")):
+            if c.startswith(
+                ("//", "#", "/*", "*", "import ", "from ", "export type", "export interface")
+            ):
                 return False
             if c in ("{", "}", ");", "});", "};", "],", "];", "]", ")", "pass", "return"):
                 return False
@@ -168,7 +181,11 @@ class CodeQualityScannerService:
                             if found_duplicates >= max_duplicates_to_report:
                                 return
                     else:
-                        block_hashes[normalized_block] = (file_path, idx + 1, window[0].strip()[:90])
+                        block_hashes[normalized_block] = (
+                            file_path,
+                            idx + 1,
+                            window[0].strip()[:90],
+                        )
 
     @classmethod
     def _analyze_python_ast(
@@ -243,7 +260,10 @@ class CodeQualityScannerService:
 
                 complexity = 1
                 for sub_node in ast.walk(node):
-                    if isinstance(sub_node, (ast.If, ast.For, ast.While, ast.ExceptHandler, ast.With, ast.Assert)):
+                    if isinstance(
+                        sub_node,
+                        (ast.If, ast.For, ast.While, ast.ExceptHandler, ast.With, ast.Assert),
+                    ):
                         complexity += 1
                     elif isinstance(sub_node, ast.BoolOp):
                         complexity += len(sub_node.values) - 1

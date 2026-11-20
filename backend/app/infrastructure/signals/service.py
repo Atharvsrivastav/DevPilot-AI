@@ -5,6 +5,7 @@ a signal is only claimed when the file/manifest proving it was observed.
 """
 
 import json
+from datetime import UTC
 from typing import Any
 
 
@@ -55,9 +56,7 @@ def _parse_requirements_deps(files_map: dict[str, str]) -> tuple[int, list[str]]
     return total, evidence
 
 
-def score_dependencies(
-    tree_paths: list[str], files_map: dict[str, str]
-) -> dict[str, Any]:
+def score_dependencies(tree_paths: list[str], files_map: dict[str, str]) -> dict[str, Any]:
     """Dependency health from manifests actually present in the tree."""
     names = _basenames(tree_paths)
     reasons: list[str] = []
@@ -79,9 +78,16 @@ def score_dependencies(
     }
     found = [(m, label) for m, label in manifests.items() if m in names]
     lockfiles = {
-        "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
-        "poetry.lock", "pdm.lock", "pipfile.lock",
-        "cargo.lock", "go.sum", "composer.lock", "gemfile.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "pdm.lock",
+        "pipfile.lock",
+        "cargo.lock",
+        "go.sum",
+        "composer.lock",
+        "gemfile.lock",
     }
     locks = sorted(lockfiles & names)
 
@@ -151,10 +157,31 @@ def score_testing(tree_paths: list[str], files_map: dict[str, str]) -> dict[str,
         # Filename conventions
         base = low.rsplit("/", 1)[-1]
         if (
-            base.endswith((".test.ts", ".test.js", ".test.tsx", ".test.jsx", ".spec.ts", ".spec.js", ".spec.tsx", ".spec.jsx"))
+            base.endswith(
+                (
+                    ".test.ts",
+                    ".test.js",
+                    ".test.tsx",
+                    ".test.jsx",
+                    ".spec.ts",
+                    ".spec.js",
+                    ".spec.tsx",
+                    ".spec.jsx",
+                )
+            )
             or base.endswith(("_test.py", "_test.go", "_spec.rb"))
             or base.startswith(("test_", "spec_"))
-            or base.endswith(("test.java", "tests.java", "testcase.java", "test.kt", "tests.kt", "tests.cs", "test.php"))
+            or base.endswith(
+                (
+                    "test.java",
+                    "tests.java",
+                    "testcase.java",
+                    "test.kt",
+                    "tests.kt",
+                    "tests.cs",
+                    "test.php",
+                )
+            )
         ):
             return True
         return False
@@ -163,31 +190,45 @@ def score_testing(tree_paths: list[str], files_map: dict[str, str]) -> dict[str,
 
     names = _basenames(tree_paths)
     test_configs = {
-        "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json",
-        "vitest.config.ts", "vitest.config.js", "vitest.config.mjs",
-        "playwright.config.ts", "playwright.config.js",
-        "cypress.config.ts", "cypress.config.js", "cypress.json",
-        "pytest.ini", ".pytest.ini", "tox.ini",
-        ".mocharc.json", ".mocharc.js", ".mocharc.yml",
-        "phpunit.xml", "phpunit.xml.dist", "karma.conf.js",
+        "jest.config.js",
+        "jest.config.ts",
+        "jest.config.mjs",
+        "jest.config.cjs",
+        "jest.config.json",
+        "vitest.config.ts",
+        "vitest.config.js",
+        "vitest.config.mjs",
+        "playwright.config.ts",
+        "playwright.config.js",
+        "cypress.config.ts",
+        "cypress.config.js",
+        "cypress.json",
+        "pytest.ini",
+        ".pytest.ini",
+        "tox.ini",
+        ".mocharc.json",
+        ".mocharc.js",
+        ".mocharc.yml",
+        "phpunit.xml",
+        "phpunit.xml.dist",
+        "karma.conf.js",
     }
     found_configs = sorted(test_configs & names)
     has_pytest_cfg = any(
-        p.lower().endswith("pyproject.toml") and ("[tool.pytest" in (files_map.get(p, "")) or "pytest" in (files_map.get(p, "")))
+        p.lower().endswith("pyproject.toml")
+        and ("[tool.pytest" in (files_map.get(p, "")) or "pytest" in (files_map.get(p, "")))
         for p in files_map
     )
     if has_pytest_cfg:
         found_configs.append("pyproject.toml (pytest configured)")
 
     # Check for test scripts in package.json
-    has_npm_test_script = False
     for p, content in files_map.items():
         if p.lower().endswith("package.json"):
             try:
                 pkg_data = json.loads(content)
                 scripts = pkg_data.get("scripts", {})
                 if "test" in scripts and "no test specified" not in scripts["test"].lower():
-                    has_npm_test_script = True
                     found_configs.append(f"package.json (test script: {scripts['test'][:40]})")
             except Exception:
                 pass
@@ -201,7 +242,23 @@ def score_testing(tree_paths: list[str], files_map: dict[str, str]) -> dict[str,
             low = p.lower()
             if low.startswith(".github/workflows/") and low.endswith((".yml", ".yaml")):
                 content = files_map.get(p, "")
-                if any(k in content.lower() for k in ("pytest", "jest", "vitest", "go test", "cargo test", "npm test", "npm run test", "yarn test", "pnpm test", "phpunit", "mvn test", "gradle test")):
+                if any(
+                    k in content.lower()
+                    for k in (
+                        "pytest",
+                        "jest",
+                        "vitest",
+                        "go test",
+                        "cargo test",
+                        "npm test",
+                        "npm run test",
+                        "yarn test",
+                        "pnpm test",
+                        "phpunit",
+                        "mvn test",
+                        "gradle test",
+                    )
+                ):
                     ci_runs_tests = True
                     ci_test_workflows.append(p)
 
@@ -214,20 +271,28 @@ def score_testing(tree_paths: list[str], files_map: dict[str, str]) -> dict[str,
         if ci_runs_tests:
             posture = "TESTS_AND_CI_VERIFIED"
             score = min(100, 50 + min(25, len(test_files) * 2) + 15 + (10 if found_configs else 0))
-            reasons.append(f"Tests detected ({len(test_files)} file(s)) and automated CI test execution verified in {', '.join(ci_test_workflows[:2])}.")
+            reasons.append(
+                f"Tests detected ({len(test_files)} file(s)) and automated CI test execution verified in {', '.join(ci_test_workflows[:2])}."
+            )
             evidence.extend(ci_test_workflows)
         else:
             posture = "TESTS_DETECTED_WEAK_CI"
             score = min(75, 40 + min(20, len(test_files) * 2) + (15 if found_configs else 0))
-            reasons.append(f"Tests detected ({len(test_files)} file(s)), but weak automated CI execution evidence in repository workflows.")
+            reasons.append(
+                f"Tests detected ({len(test_files)} file(s)), but weak automated CI execution evidence in repository workflows."
+            )
     elif found_configs:
         posture = "TEST_CONFIG_ONLY"
         score = 45
-        reasons.append(f"Test configuration detected ({', '.join(found_configs[:2])}), but few/no explicit test files matched in the scanned tree.")
+        reasons.append(
+            f"Test configuration detected ({', '.join(found_configs[:2])}), but few/no explicit test files matched in the scanned tree."
+        )
     else:
         posture = "TEST_FILES_UNCONFIGURED"
         score = 40
-        reasons.append(f"{len(test_files)} test file(s) detected, but no runner configuration or CI test step verified.")
+        reasons.append(
+            f"{len(test_files)} test file(s) detected, but no runner configuration or CI test step verified."
+        )
 
     if test_files:
         evidence.extend(test_files[:15])
@@ -267,17 +332,26 @@ def score_activity(
 
         # Check latest commit date if available
         first_commit = recent_commits[0]
-        c_date_str = first_commit.get("date") if isinstance(first_commit, dict) else getattr(first_commit, "date", None)
+        c_date_str = (
+            first_commit.get("date")
+            if isinstance(first_commit, dict)
+            else getattr(first_commit, "date", None)
+        )
         if c_date_str:
-            evidence.append(f"Latest commit: {c_date_str[:10]} ('{(first_commit.get('message') or '')[:40]}')")
+            evidence.append(
+                f"Latest commit: {c_date_str[:10]} ('{(first_commit.get('message') or '')[:40]}')"
+            )
             # Parse freshness
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
+
                 c_dt = datetime.fromisoformat(c_date_str.replace("Z", "+00:00"))
-                days_ago = (datetime.now(timezone.utc) - c_dt).days
+                days_ago = (datetime.now(UTC) - c_dt).days
                 if days_ago <= 7:
                     score += 35
-                    reasons.append(f"High development activity — newest commit is {days_ago} day(s) old.")
+                    reasons.append(
+                        f"High development activity — newest commit is {days_ago} day(s) old."
+                    )
                 elif days_ago <= 30:
                     score += 25
                     reasons.append(f"Active maintenance — newest commit is {days_ago} days old.")
@@ -325,23 +399,19 @@ def score_activity(
     }
 
 
-def score_performance_signals(
-    tree_paths: list[str], files_map: dict[str, str]
-) -> dict[str, Any]:
+def score_performance_signals(tree_paths: list[str], files_map: dict[str, str]) -> dict[str, Any]:
     """Static performance *signals* — never a runtime claim.
 
     Based only on measurable facts: oversized files, perf-related configs.
     """
-    reasons: list[str] = [
-        "Static signals only — no runtime benchmarking was performed."
-    ]
+    reasons: list[str] = ["Static signals only — no runtime benchmarking was performed."]
     evidence: list[str] = []
 
     large = [
-        p for p in tree_paths
+        p
+        for p in tree_paths
         if any(
-            len((files_map.get(p) or "").encode("utf-8", errors="ignore")) > 200_000
-            for _ in [0]
+            len((files_map.get(p) or "").encode("utf-8", errors="ignore")) > 200_000 for _ in [0]
         )
     ]
     score = 70
@@ -354,21 +424,33 @@ def score_performance_signals(
 
     names = _basenames(tree_paths)
     perf_configs = {
-        "next.config.js", "next.config.mjs", "next.config.ts",
-        "vite.config.ts", "vite.config.js", "webpack.config.js",
-        "nuxt.config.ts", ".browserslistrc",
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.ts",
+        "vite.config.ts",
+        "vite.config.js",
+        "webpack.config.js",
+        "nuxt.config.ts",
+        ".browserslistrc",
     }
     found = sorted(perf_configs & names)
     if found:
         score += 15
         evidence.extend(found)
-        reasons.append("Build/bundler configuration present (code-splitting and optimization possible).")
+        reasons.append(
+            "Build/bundler configuration present (code-splitting and optimization possible)."
+        )
     else:
         reasons.append("No bundler/build performance configuration detected.")
 
-    if any(p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov")) for p in tree_paths[:5000]):
+    if any(
+        p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov"))
+        for p in tree_paths[:5000]
+    ):
         score -= 5
-        reasons.append("Binary media assets present in the tree — serve optimized formats where possible.")
+        reasons.append(
+            "Binary media assets present in the tree — serve optimized formats where possible."
+        )
 
     return {
         "score": max(0, min(100, score)),

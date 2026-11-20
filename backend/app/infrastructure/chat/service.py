@@ -35,7 +35,8 @@ def _finding_snippets(record: dict[str, Any], question: str) -> list[ContextSour
         section = record.get(pillar) or {}
         for f in section.get("findings", [])[:50]:
             haystack = " ".join(
-                str(f.get(k, "")) for k in ("title", "issue_type", "affected_file", "file_path", "description")
+                str(f.get(k, ""))
+                for k in ("title", "issue_type", "affected_file", "file_path", "description")
             ).lower()
             overlap = sum(1 for t in question_terms if t in haystack)
             path = f.get("affected_file") or f.get("file_path") or "unknown"
@@ -44,9 +45,7 @@ def _finding_snippets(record: dict[str, Any], question: str) -> list[ContextSour
 
     tree = ((record.get("architecture") or {}).get("folder_graph") or [])[:15]
     if tree:
-        candidates.append(
-            (0.05, "repository tree", "Top-level paths: " + ", ".join(tree))
-        )
+        candidates.append((0.05, "repository tree", "Top-level paths: " + ", ".join(tree)))
 
     candidates.sort(key=lambda c: c[0], reverse=True)
     seen: set[tuple[str, str]] = set()
@@ -75,7 +74,9 @@ def _deterministic_summary(record: dict[str, Any], question: str) -> str:
         section = record.get(pillar) or {}
         findings = section.get("findings", []) if section.get("status") == "completed" else []
         if findings:
-            lines.append(f"{label}: {len(findings)} finding(s). Top: {findings[0].get('title', findings[0].get('issue_type', 'see findings'))}.")
+            lines.append(
+                f"{label}: {len(findings)} finding(s). Top: {findings[0].get('title', findings[0].get('issue_type', 'see findings'))}."
+            )
         else:
             lines.append(f"{label}: no issues detected by current checks.")
     lines.append(
@@ -133,9 +134,7 @@ class RepositoryChatService:
                 sources=snippets,
             )
 
-        context_str = "\n\n".join(
-            f"--- Source: {s.file_path} ---\n{s.content}" for s in snippets
-        )
+        context_str = "\n\n".join(f"--- Source: {s.file_path} ---\n{s.content}" for s in snippets)
         repo = record.get("repository", {})
         prompt = (
             f"You are a code assistant. Answer ONLY from the evidence below about "
@@ -155,7 +154,10 @@ class RepositoryChatService:
                     json={
                         "model": NVIDIA_MODEL,
                         "messages": [
-                            {"role": "system", "content": "Answer strictly from provided evidence. Never invent repository facts."},
+                            {
+                                "role": "system",
+                                "content": "Answer strictly from provided evidence. Never invent repository facts.",
+                            },
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.2,

@@ -28,13 +28,30 @@ FETCH_CONCURRENCY = 8
 METADATA_CACHE_TTL_SECONDS = 120
 
 _KEY_EXTENSIONS = (
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md",
-    ".yml", ".yaml", "Dockerfile", "requirements.txt",
-    "pom.xml", "Cargo.toml", "go.mod",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".md",
+    ".yml",
+    ".yaml",
+    "Dockerfile",
+    "requirements.txt",
+    "pom.xml",
+    "Cargo.toml",
+    "go.mod",
 )
 _IGNORED_PATH_PARTS = (
-    "node_modules", ".next", "__pycache__", "venv", ".venv",
-    "dist", "build", ".git/",
+    "node_modules",
+    ".next",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "dist",
+    "build",
+    ".git/",
 )
 
 # Short-lived metadata cache: github:{owner}/{repo} -> (expires_at, payload)
@@ -152,9 +169,7 @@ class GitHubRepositoryService:
                 "GitHub rejected the request (bad credentials). Set a valid GITHUB_PERSONAL_ACCESS_TOKEN server-side.",
                 502,
             )
-        if res.status_code == 429 or (
-            res.status_code == 403 and remaining == "0"
-        ):
+        if res.status_code == 429 or (res.status_code == 403 and remaining == "0"):
             reset = res.headers.get("X-RateLimit-Reset")
             when = ""
             if reset and reset.isdigit():
@@ -212,9 +227,7 @@ class GitHubRepositoryService:
         _METADATA_CACHE[cache_key] = (time.time() + METADATA_CACHE_TTL_SECONDS, data)
         return data
 
-    async def get_head_sha(
-        self, owner: str, repo: str, branch: str
-    ) -> str | None:
+    async def get_head_sha(self, owner: str, repo: str, branch: str) -> str | None:
         """Newest commit SHA on a branch (best-effort — returns None if unavailable)."""
         try:
             async with httpx.AsyncClient(
@@ -247,12 +260,14 @@ class GitHubRepositoryService:
                 for c in res.json():
                     commit_obj = c.get("commit", {})
                     author_obj = commit_obj.get("author", {})
-                    result.append({
-                        "sha": (c.get("sha") or "")[:7],
-                        "message": (commit_obj.get("message") or "").split("\n")[0],
-                        "author_name": author_obj.get("name", "Unknown"),
-                        "date": author_obj.get("date", ""),
-                    })
+                    result.append(
+                        {
+                            "sha": (c.get("sha") or "")[:7],
+                            "message": (commit_obj.get("message") or "").split("\n")[0],
+                            "author_name": author_obj.get("name", "Unknown"),
+                            "date": author_obj.get("date", ""),
+                        }
+                    )
                 return result
         except httpx.HTTPError:
             pass
@@ -273,20 +288,20 @@ class GitHubRepositoryService:
             if res.status_code == 200 and isinstance(res.json(), list):
                 result = []
                 for contrib in res.json():
-                    result.append({
-                        "login": contrib.get("login", ""),
-                        "contributions": contrib.get("contributions", 0),
-                        "avatar_url": contrib.get("avatar_url"),
-                        "html_url": contrib.get("html_url"),
-                    })
+                    result.append(
+                        {
+                            "login": contrib.get("login", ""),
+                            "contributions": contrib.get("contributions", 0),
+                            "avatar_url": contrib.get("avatar_url"),
+                            "html_url": contrib.get("html_url"),
+                        }
+                    )
                 return result
         except httpx.HTTPError:
             pass
         return []
 
-    async def get_repository_tree(
-        self, owner: str, repo: str, branch: str = "main"
-    ) -> list[str]:
+    async def get_repository_tree(self, owner: str, repo: str, branch: str = "main") -> list[str]:
         """Fetch recursive file tree paths (required — raises GitHubError on failure)."""
         safe_branch = _validate_repo_path(branch, "branch")
         try:
@@ -324,9 +339,25 @@ class GitHubRepositoryService:
         targets: list[str] = []
         for path in tree:
             if (
-                path.endswith(_KEY_EXTENSIONS)
-                and not any(ignored in path for ignored in _IGNORED_PATH_PARTS)
-            ):
+                path.lower().endswith(_KEY_EXTENSIONS)
+                or path.rsplit("/", 1)[-1].lower()
+                in (
+                    "readme",
+                    "readme.md",
+                    "readme.txt",
+                    "readme.rst",
+                    "license",
+                    "licence",
+                    "dockerfile",
+                    "makefile",
+                    "gemfile",
+                    "requirements.txt",
+                    "package.json",
+                    "cargo.toml",
+                    "go.mod",
+                    "pom.xml",
+                )
+            ) and not any(ignored in path for ignored in _IGNORED_PATH_PARTS):
                 try:
                     _validate_repo_path(path, "file_path")
                 except GitHubError:
@@ -341,9 +372,7 @@ class GitHubRepositoryService:
         async def _fetch(client: httpx.AsyncClient, path: str) -> None:
             async with semaphore:
                 try:
-                    safe_path = "/".join(
-                        quote(segment, safe="") for segment in path.split("/")
-                    )
+                    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
                     url = (
                         f"https://raw.githubusercontent.com/{quote(owner, safe='')}/"
                         f"{quote(repo, safe='')}/{quote(safe_branch, safe='')}/{safe_path}"
@@ -358,17 +387,13 @@ class GitHubRepositoryService:
                             if total > MAX_FILE_BYTES:
                                 return
                             chunks.append(chunk)
-                        files_map[path] = b"".join(chunks).decode(
-                            "utf-8", errors="replace"
-                        )
+                        files_map[path] = b"".join(chunks).decode("utf-8", errors="replace")
                 except httpx.HTTPError:
                     return
 
         # raw.githubusercontent.com does not need (and must not receive) a
         # GitHub token. Use an unauthenticated client for content fetches.
-        async with httpx.AsyncClient(
-            timeout=REQUEST_TIMEOUT, follow_redirects=False
-        ) as client:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
             await asyncio.gather(*(_fetch(client, p) for p in targets))
         return files_map
 
@@ -400,16 +425,12 @@ class GitHubRepositoryService:
             found.append("Java")
         if "gemfile" in basenames:
             found.append("Ruby")
-        top_lang = (
-            max(languages.items(), key=lambda kv: kv[1])[0] if languages else None
-        )
+        top_lang = max(languages.items(), key=lambda kv: kv[1])[0] if languages else None
         if top_lang and all(top_lang.lower() not in f.lower() for f in found):
             return f"{top_lang}" + (f" · {' / '.join(found)}" if found else "")
         return " / ".join(found) if found else (top_lang or "Undetermined")
 
-    async def fetch_repository_details(
-        self, repo_url: str
-    ) -> GitHubRepositoryDetails:
+    async def fetch_repository_details(self, repo_url: str) -> GitHubRepositoryDetails:
         owner, repo = parse_github_url(repo_url)
 
         async with httpx.AsyncClient(
@@ -438,9 +459,7 @@ class GitHubRepositoryService:
 
             async def _get_json(path: str, params: dict | None = None):
                 try:
-                    r = await client.get(
-                        f"{self.base_url}{path}", params=params or {}
-                    )
+                    r = await client.get(f"{self.base_url}{path}", params=params or {})
                     if r.status_code == 200:
                         return r.json()
                 except httpx.HTTPError:
@@ -448,18 +467,14 @@ class GitHubRepositoryService:
                 return None
 
             languages = await _get_json(f"/repos/{owner}/{repo}/languages") or {}
-            branches_data = await _get_json(
-                f"/repos/{owner}/{repo}/branches", {"per_page": 100}
-            )
+            branches_data = await _get_json(f"/repos/{owner}/{repo}/branches", {"per_page": 100})
             branches = (
                 [b["name"] for b in branches_data]
                 if isinstance(branches_data, list)
                 else [default_branch]
             )
 
-            commits_data = await _get_json(
-                f"/repos/{owner}/{repo}/commits", {"per_page": 10}
-            )
+            commits_data = await _get_json(f"/repos/{owner}/{repo}/commits", {"per_page": 10})
             commits = []
             if isinstance(commits_data, list):
                 for c in commits_data:
@@ -467,14 +482,14 @@ class GitHubRepositoryService:
                         CommitInfo(
                             sha=(c.get("sha") or "")[:7],
                             message=(c.get("commit", {}).get("message", "").split("\n")[0]),
-                            author_name=c.get("commit", {}).get("author", {}).get("name", "Unknown"),
+                            author_name=c.get("commit", {})
+                            .get("author", {})
+                            .get("name", "Unknown"),
                             date=c.get("commit", {}).get("author", {}).get("date", ""),
                         )
                     )
 
-            contrib_data = await _get_json(
-                f"/repos/{owner}/{repo}/contributors", {"per_page": 10}
-            )
+            contrib_data = await _get_json(f"/repos/{owner}/{repo}/contributors", {"per_page": 10})
             contributors = []
             if isinstance(contrib_data, list):
                 for contrib in contrib_data:
@@ -491,9 +506,7 @@ class GitHubRepositoryService:
             readme_data = await _get_json(f"/repos/{owner}/{repo}/readme")
             if isinstance(readme_data, dict) and readme_data.get("content"):
                 try:
-                    readme_content = base64.b64decode(
-                        readme_data["content"]
-                    ).decode("utf-8")
+                    readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
                 except Exception:
                     readme_content = None
 
@@ -525,13 +538,9 @@ class GitHubRepositoryService:
         """
         safe_branch = _validate_repo_path(branch, "branch")
         safe_file = _validate_repo_path(file_path, "file_path")
-        quoted_path = "/".join(
-            quote(segment, safe="") for segment in safe_file.split("/")
-        )
+        quoted_path = "/".join(quote(segment, safe="") for segment in safe_file.split("/"))
         try:
-            async with httpx.AsyncClient(
-                timeout=REQUEST_TIMEOUT, follow_redirects=False
-            ) as client:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
                 url = (
                     f"https://raw.githubusercontent.com/{quote(owner, safe='')}/"
                     f"{quote(repo, safe='')}/{quote(safe_branch, safe='')}/{quoted_path}"
@@ -549,4 +558,3 @@ class GitHubRepositoryService:
                     return b"".join(chunks).decode("utf-8", errors="replace")
         except (httpx.HTTPError, GitHubError):
             return None
-

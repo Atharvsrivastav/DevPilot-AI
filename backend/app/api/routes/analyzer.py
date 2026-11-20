@@ -1,6 +1,7 @@
 """FastAPI controller route for Repository Structure Analyzer."""
 
 from fastapi import APIRouter, Depends, Query
+
 from app.api.deps import get_current_user_id
 from app.domain.models.repo_analyzer import RepositoryStructureAnalysis
 from app.infrastructure.github.repo_analyzer import RepositoryAnalyzerService
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/analyzer", tags=["Repository Structural Analyzer"])
 @router.get("/structure", response_model=RepositoryStructureAnalysis)
 async def analyze_repository_structure(
     repo_url: str = Query(..., description="GitHub Repository URL to analyze"),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """Analyze GitHub repository structure, languages, framework, package manager, tree, and dependencies."""
     github_service = GitHubRepositoryService()

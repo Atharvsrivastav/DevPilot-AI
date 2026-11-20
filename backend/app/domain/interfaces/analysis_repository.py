@@ -1,7 +1,8 @@
 """Abstract repository interface for repository analysis data persistence."""
 
 from abc import ABC, abstractmethod
-from typing import Sequence
+from collections.abc import Sequence
+
 from app.domain.models.analysis import AnalysisReport, Repository
 
 

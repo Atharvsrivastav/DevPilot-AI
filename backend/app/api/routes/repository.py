@@ -23,7 +23,7 @@ router = APIRouter(prefix="/repository", tags=["GitHub Repository Service"])
 @router.get("/details", response_model=GitHubRepositoryDetails)
 async def get_repository_details(
     repo_url: str = Query(..., description="Full GitHub repository URL"),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """Fetch complete GitHub repository metadata without AI processing."""
     service = GitHubRepositoryService()
@@ -58,13 +58,9 @@ async def explain_file(
     service = GitHubRepositoryService()
     branch = payload.branch or "main"
     try:
-        content = await service.get_raw_file_content(
-            owner, repo, branch, payload.file_path
-        )
+        content = await service.get_raw_file_content(owner, repo, branch, payload.file_path)
     except GitHubError as exc:
-        raise HTTPException(
-            status_code=exc.http_status, detail=exc.message
-        ) from exc
+        raise HTTPException(status_code=exc.http_status, detail=exc.message) from exc
     if not content:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -80,22 +76,30 @@ async def explain_file(
         if rec and rec.get("user_id") == current_user_id:
             for f in (rec.get("security") or {}).get("findings", []):
                 if (f.get("affected_file") or f.get("file_path")) == payload.file_path:
-                    concerns.append(f"Security: {f.get('title') or f.get('issue_type')} at line {f.get('line_number', 1)} ({f.get('recommendation', '')})")
+                    concerns.append(
+                        f"Security: {f.get('title') or f.get('issue_type')} at line {f.get('line_number', 1)} ({f.get('recommendation', '')})"
+                    )
             for f in (rec.get("quality") or {}).get("findings", []):
                 if (f.get("affected_file") or f.get("file_path")) == payload.file_path:
-                    concerns.append(f"Quality: {f.get('title') or f.get('issue_type')} at line {f.get('line_number', 1)} ({f.get('recommendation', '')})")
+                    concerns.append(
+                        f"Quality: {f.get('title') or f.get('issue_type')} at line {f.get('line_number', 1)} ({f.get('recommendation', '')})"
+                    )
 
     # Extract symbols deterministically
     lines = content.splitlines()
     fn_matches = re.findall(r"^(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(", content, re.MULTILINE)
-    fn_matches += re.findall(r"(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(", content, re.MULTILINE)
+    fn_matches += re.findall(
+        r"(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(", content, re.MULTILINE
+    )
     fn_matches += re.findall(r"(?:export\s+)?class\s+([A-Za-z0-9_]+)", content, re.MULTILINE)
-    fn_matches += re.findall(r"(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\(", content, re.MULTILINE)
+    fn_matches += re.findall(
+        r"(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\(", content, re.MULTILINE
+    )
 
     dep_matches = re.findall(r"^(?:import|from)\s+([A-Za-z0-9_\./@-]+)", content, re.MULTILINE)
     dep_matches += re.findall(r"require\(['\"]([A-Za-z0-9_\./@-]+)['\"]\)", content)
-    unique_deps = sorted(list(set(dep_matches)))[:10]
-    unique_fns = sorted(list(set(fn_matches)))[:15]
+    unique_deps = sorted(set(dep_matches))[:10]
+    unique_fns = sorted(set(fn_matches))[:15]
 
     # Try LLM if configured
     if settings.NVIDIA_API_KEY:
@@ -117,10 +121,11 @@ async def explain_file(
                         "model": settings.NVIDIA_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.2,
-                    }
+                    },
                 )
                 if res.status_code == 200:
                     import json
+
                     text = res.json()["choices"][0]["message"]["content"].strip()
                     # extract JSON block
                     m = re.search(r"\{.*\}", text, re.DOTALL)
@@ -147,7 +152,9 @@ async def explain_file(
         f"Integrates with dependencies: {', '.join(unique_deps[:4]) or 'internal modules'}",
     ]
     if unique_fns:
-        responsibilities.append(f"Declares {len(unique_fns)} primary symbols: {', '.join(unique_fns[:3])}")
+        responsibilities.append(
+            f"Declares {len(unique_fns)} primary symbols: {', '.join(unique_fns[:3])}"
+        )
 
     return ExplainFileResponse(
         file_path=payload.file_path,
@@ -155,8 +162,9 @@ async def explain_file(
         responsibilities=responsibilities,
         functions=unique_fns,
         dependencies=unique_deps,
-        potential_concerns=concerns if concerns else ["No critical static issues flagged on this file."],
+        potential_concerns=concerns
+        if concerns
+        else ["No critical static issues flagged on this file."],
         source_attribution=f"Based on analyzed file: {payload.file_path}",
         is_ai_generated=False,
     )
-

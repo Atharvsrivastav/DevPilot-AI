@@ -12,7 +12,7 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
-ignore = []
+ignore = ["B008", "E501", "UP042"]
 
 [format]
 quote-style = "double"
