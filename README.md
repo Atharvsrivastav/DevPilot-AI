@@ -119,7 +119,7 @@ npm run lint
 npm run format
 ```
 
----
+----
 
 ## 📄 License
 MIT License. Distributed for enterprise usage and automated repository intelligence.
