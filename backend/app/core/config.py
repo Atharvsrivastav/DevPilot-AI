@@ -1,9 +1,25 @@
 """Core settings module reading environment configurations."""
 
+from typing import Literal
+from urllib.parse import urlparse
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "change_me_in_production_min_32_chars"
+
+
+def _validate_https_url(name: str, value: str, *, allow_path: bool) -> None:
+    """Require an https:// URL without embedded credentials for production."""
+    parsed = urlparse(value.strip())
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError(f"{name} must be an https:// URL in production")
+    if parsed.username or parsed.password:
+        raise ValueError(f"{name} must not include credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError(f"{name} must not include a query string or fragment")
+    if not allow_path and parsed.path not in ("", "/"):
+        raise ValueError(f"{name} must be an origin without a path")
 
 
 class Settings(BaseSettings):
@@ -58,9 +74,11 @@ class Settings(BaseSettings):
     NVIDIA_MAX_FALLBACK_MODELS: int = 2
     NVIDIA_REQUEST_TIMEOUT_SECONDS: float = 30.0
 
-    # JWT Configuration — must be overridden in production.
+    # JWT Configuration — must be overridden in production. The algorithm is
+    # pinned so a misconfigured environment cannot enable "none" or an
+    # asymmetric algorithm with the shared HMAC secret.
     JWT_SECRET_KEY: str = DEFAULT_JWT_SECRET
-    JWT_ALGORITHM: str = "HS256"
+    JWT_ALGORITHM: Literal["HS256"] = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
@@ -111,6 +129,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JWT_SECRET_KEY must be a random value of at least 32 characters in production"
             )
+
+        # OAuth codes, bearer tokens, and CORS grants must never travel over
+        # plaintext HTTP. Fail at startup instead of at request time.
+        _validate_https_url("FRONTEND_URL", self.FRONTEND_URL, allow_path=True)
+        _validate_https_url("GITHUB_REDIRECT_URI", self.GITHUB_REDIRECT_URI, allow_path=True)
+        for origin in self.CORS_EXTRA_ORIGINS.split(","):
+            origin = origin.strip()
+            if not origin:
+                continue
+            if origin == "*":
+                raise ValueError("CORS_EXTRA_ORIGINS must not contain a wildcard")
+            _validate_https_url("CORS_EXTRA_ORIGINS", origin, allow_path=False)
         return self
 
 

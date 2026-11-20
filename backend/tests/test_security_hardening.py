@@ -32,6 +32,8 @@ def _production_settings(**overrides) -> Settings:
         "JWT_SECRET_KEY": "a" * 48,
         "SECRET_KEY": "b" * 48,
         "ALLOW_DEMO_AUTH": False,
+        "FRONTEND_URL": "https://app.example.com",
+        "GITHUB_REDIRECT_URI": "https://api.example.com/api/v1/auth/github/callback",
     }
     values.update(overrides)
     return Settings(**values)
@@ -51,6 +53,49 @@ def test_production_accepts_explicit_secrets():
     settings = _production_settings()
     assert settings.is_production is True
     assert settings.ALLOW_DEMO_AUTH is False
+
+
+def test_production_rejects_plaintext_frontend_url():
+    with pytest.raises(ValidationError):
+        _production_settings(FRONTEND_URL="http://app.example.com")
+
+
+def test_production_rejects_plaintext_oauth_redirect():
+    with pytest.raises(ValidationError):
+        _production_settings(
+            GITHUB_REDIRECT_URI="http://api.example.com/api/v1/auth/github/callback"
+        )
+
+
+def test_production_rejects_plaintext_cors_origin():
+    with pytest.raises(ValidationError):
+        _production_settings(
+            CORS_EXTRA_ORIGINS="https://app.example.com,http://evil.example.com"
+        )
+
+
+def test_production_rejects_wildcard_cors_origin():
+    with pytest.raises(ValidationError):
+        _production_settings(CORS_EXTRA_ORIGINS="*")
+
+
+def test_production_rejects_cors_origin_with_path():
+    with pytest.raises(ValidationError):
+        _production_settings(CORS_EXTRA_ORIGINS="https://app.example.com/admin")
+
+
+def test_production_accepts_https_origins_without_dev_defaults():
+    settings = _production_settings(
+        CORS_EXTRA_ORIGINS="https://app.example.com, https://admin.example.com/"
+    )
+    assert settings.cors_origins == ["https://app.example.com", "https://admin.example.com"]
+
+
+def test_jwt_algorithm_is_pinned_to_hs256():
+    with pytest.raises(ValidationError):
+        Settings(JWT_ALGORITHM="none")
+    with pytest.raises(ValidationError):
+        Settings(JWT_ALGORITHM="RS256")
 
 
 def test_demo_auth_is_opt_in():

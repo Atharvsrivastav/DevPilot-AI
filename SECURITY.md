@@ -26,6 +26,9 @@ responsible for applying updates themselves.
 - Keep `ALLOW_PRIVATE_REPOS=false` until per-user GitHub authorization is
   implemented.
 - Terminate TLS at the edge and configure `CORS_EXTRA_ORIGINS` and
-  `FRONTEND_URL` for the deployed frontend.
+  `FRONTEND_URL` for the deployed frontend. In production, `FRONTEND_URL`,
+  `GITHUB_REDIRECT_URI`, and every `CORS_EXTRA_ORIGINS` entry must use
+  `https://`; the backend refuses to start otherwise. JWT signing is pinned to
+  `HS256`.
 - Never commit `.env` files or provider API keys. Rotate any credential that
   has ever been committed.
